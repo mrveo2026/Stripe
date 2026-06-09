@@ -8,7 +8,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 
 # --- CONFIGURATION ---
-token = '8732633493:AAH9KqxUhUvbZ5Zo0qw5EcdOWhjFtpk0wq0'
+token = '8910582957:AAEtLRnEePDQ-xA81fOGMjyWpG8NeOzbzP0'
 ADMIN_ID = 5831292144
 API_ID = '37536372'
 API_HASH = 'abcebb0aa8c00b3ccb4a3172b566325d'
