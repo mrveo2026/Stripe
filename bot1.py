@@ -236,21 +236,22 @@ def can_check(user_id, required=1):
 def is_authorized_to_check(message):
     user_id = message.chat.id
     
+    # Admin ဆို ဘယ်နေရာမဆို ရတယ်
     if str(user_id) == str(ADMIN_ID):
         return True, "admin"
     
+    # Ban ခံထားရလား စစ်မယ်
     banned, until = is_user_banned(user_id)
     if banned:
         if until:
             return False, f"banned_until_{until}"
         return False, "banned_permanent"
     
+    # Group ထဲမှာဆို အကုန်ရတယ် (ဘယ် Group မဆို)
     if message.chat.type in ['group', 'supergroup']:
-        if message.chat.id == ALLOWED_GROUP_ID:
-            return True, "group"
-        else:
-            return False, "wrong_group"
+        return True, "group"
     
+    # Private chat ဆို မရဘူး (Admin မှလွဲ)
     return False, "private"
 
 # ==================== SMART CC EXTRACTION ====================
