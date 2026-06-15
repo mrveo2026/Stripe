@@ -12,47 +12,28 @@ from datetime import datetime, timedelta
 from telebot import types
 from concurrent.futures import ThreadPoolExecutor
 
-# ==================== CONFIGURATION ====================
-token = '8982677734:AAEGiexTzR3gP4Hjt4xA-s9gK4WG5aIFAnM'
-ADMIN_ID = 5831292144
-API_ID = '37536372'
-API_HASH = 'abcebb0aa8c00b3ccb4a3172b566325d'
-CHANNEL_ID = '-1003763847738'
-ALLOWED_GROUP_ID = -1003763847738
+# ===================================================================
+#                           CONFIGURATION
+# ===================================================================
 
+TOKEN = '8982677734:AAEGiexTzR3gP4Hjt4xA-s9gK4WG5aIFAnM'
+ADMIN_ID = 5831292144
 DAILY_LIMIT = 1000
 RESULTS_DIR = "results"
 
 if not os.path.exists(RESULTS_DIR):
     os.makedirs(RESULTS_DIR)
 
-# ==================== FILE PATHS ====================
+# File paths
 USERS_FILE = 'users.json'
 BANNED_FILE = 'banned.json'
 PROXY_FILE = 'proxies.json'
 LIMIT_FILE = 'limits.json'
 
-# ==================== EMOJI CONFIG ====================
-PREMIUM_EMOJI_IDS = {
-    "✅": "6023660820544623088", "🔥": "5220166546491459639", "❌": "6037570896766438989",
-    "🐇": "6199501437387412202", "💳": "5472250091332993630", "💠": "5971837723676249096",
-    "📝": "5258500400918587241", "🌐": "4956560549287560231", "🎯": "5287535694099536694",
-    "🤖": "5927026418616636353", "🤵": "4949560993840629085", "💰": "5971944878815317190",
-    "⏸️": "6001440193058444284", "▶️": "6285315214673975495", "🛑": "5420323339723881652",
-    "📊": "6032808241891644148", "📦": "6066395745139824604", "📋": "5974235702701853774",
-    "🔄": "5971837723676249096", "⏳": "5971837723676249096", "🚀": "6235302918967269680",
-    "⚠️": "5420323339723881652", "💎": "4956739572114392015", "📅": "6066395745139824604",
-    "⚙️": "6264791387032523779", "➡️": "4918408122868958076", "🏦": "5424887227807188349",
-    "🌍": "6188045471118790922", "👨‍💻": "5942623248754676762", "⛔": "5420323339723881652",
-    "🕐": "6001440193058444284", "🔗": "5472250091332993630"
-}
+# ===================================================================
+#                          JSON HANDLERS
+# ===================================================================
 
-def get_emj(emoji_char):
-    if emoji_char in PREMIUM_EMOJI_IDS:
-        return f'<tg-emoji emoji-id="{PREMIUM_EMOJI_IDS[emoji_char]}">{emoji_char}</tg-emoji>'
-    return emoji_char
-
-# ==================== JSON DATA HANDLERS ====================
 def load_json(file, default):
     try:
         if os.path.exists(file):
@@ -70,7 +51,10 @@ def save_json(file, data):
     except:
         return False
 
-# ==================== USER DATA ====================
+# ===================================================================
+#                          USER MANAGEMENT
+# ===================================================================
+
 def load_users_data():
     return load_json(USERS_FILE, {"allowed_users": {}, "vip_plans": {
         "1_month": {"price": 10, "days": 30},
@@ -94,7 +78,10 @@ def is_user_allowed(user_id):
                 return True
     return False
 
-# ==================== BAN SYSTEM ====================
+# ===================================================================
+#                           BAN SYSTEM
+# ===================================================================
+
 def load_banned():
     return load_json(BANNED_FILE, {})
 
@@ -150,7 +137,10 @@ def unban_user(user_id):
         return True
     return False
 
-# ==================== PROXY SYSTEM ====================
+# ===================================================================
+#                          PROXY SYSTEM
+# ===================================================================
+
 def load_proxies():
     return load_json(PROXY_FILE, {})
 
@@ -182,7 +172,10 @@ def remove_user_proxy(user_id):
         return True
     return False
 
-# ==================== DAILY LIMIT SYSTEM ====================
+# ===================================================================
+#                         DAILY LIMIT SYSTEM
+# ===================================================================
+
 def load_limits():
     return load_json(LIMIT_FILE, {})
 
@@ -199,10 +192,8 @@ def get_user_today_usage(user_id):
     
     if user_id_str not in limits:
         return 0
-    
     if today not in limits[user_id_str]:
         return 0
-    
     return limits[user_id_str][today].get('count', 0)
 
 def increment_user_usage(user_id, count=1):
@@ -212,7 +203,6 @@ def increment_user_usage(user_id, count=1):
     
     if user_id_str not in limits:
         limits[user_id_str] = {}
-    
     if today not in limits[user_id_str]:
         limits[user_id_str][today] = {'count': 0}
     
@@ -232,40 +222,43 @@ def get_remaining_limit(user_id):
 def can_check(user_id, required=1):
     return get_remaining_limit(user_id) >= required
 
-# ==================== AUTHORIZATION CHECK ====================
+# ===================================================================
+#                        AUTHORIZATION CHECK
+# ===================================================================
+
 def is_authorized_to_check(message):
     user_id = message.chat.id
     
-    # Admin ဆို ဘယ်နေရာမဆို ရတယ်
+    # Admin always allowed
     if str(user_id) == str(ADMIN_ID):
         return True, "admin"
     
-    # Ban ခံထားရလား စစ်မယ်
+    # Check if banned
     banned, until = is_user_banned(user_id)
     if banned:
         if until:
             return False, f"banned_until_{until}"
         return False, "banned_permanent"
     
-    # Group ထဲမှာဆို အကုန်ရတယ် (ဘယ် Group မဆို)
+    # All groups allowed
     if message.chat.type in ['group', 'supergroup']:
         return True, "group"
     
-    # Private chat ဆို မရဘူး (Admin မှလွဲ)
+    # Private chat not allowed
     return False, "private"
 
-# ==================== SMART CC EXTRACTION ====================
+# ===================================================================
+#                       SMART CC EXTRACTION
+# ===================================================================
+
 def extract_cc_from_text(text):
-    """Extract CC from any messy text format - NO INVALID FORMAT ERROR EVER"""
+    """Extract CC from any messy text format"""
     if not text:
         return []
     
     results = []
     
-    # Step 1: Remove all spaces and normalize separators
-    # But keep card numbers intact
-    
-    # Pattern 1: Standard pipe format
+    # Pattern 1: Standard pipe/slash/colon format
     pattern1 = r'(\d{15,16})\s*[|\|:;/]\s*(\d{1,2})\s*[|\|:;/]\s*(\d{2,4})\s*[|\|:;/]\s*(\d{3,4})'
     matches = re.findall(pattern1, text, re.IGNORECASE)
     for match in matches:
@@ -285,98 +278,37 @@ def extract_cc_from_text(text):
                 results.append(formatted)
     
     # Pattern 2: Space separated
-    pattern2 = r'(\d{15,16})\s+(\d{1,2})\s+(\d{2,4})\s+(\d{3,4})'
-    matches = re.findall(pattern2, text, re.IGNORECASE)
-    for match in matches:
-        cc_num = match[0]
-        month = match[1].zfill(2)
-        year_raw = match[2]
-        cvv = match[3].zfill(3)
-        
-        if len(year_raw) == 4:
-            year = year_raw[2:4]
-        else:
-            year = year_raw.zfill(2)
-        
-        if 1 <= int(month) <= 12 and len(year) == 2 and len(cvv) == 3:
-            formatted = f"{cc_num}|{month}|{year}|{cvv}"
-            if formatted not in results:
-                results.append(formatted)
-    
-    # Pattern 3: With labels (Card:, Exp:, CVV:)
-    pattern3 = r'card(?:\s*:|\s+)?\s*(\d{15,16}).*?(?:exp|month|mm)(?:\s*:|\s+)?\s*(\d{1,2}).*?(?:year|yy)(?:\s*:|\s+)?\s*(\d{2,4}).*?(?:cvv|cvc|code)(?:\s*:|\s+)?\s*(\d{3,4})'
-    matches = re.findall(pattern3, text, re.IGNORECASE | re.DOTALL)
-    for match in matches:
-        cc_num = match[0]
-        month = match[1].zfill(2)
-        year_raw = match[2]
-        cvv = match[3].zfill(3)
-        
-        if len(year_raw) == 4:
-            year = year_raw[2:4]
-        else:
-            year = year_raw.zfill(2)
-        
-        if 1 <= int(month) <= 12 and len(year) == 2 and len(cvv) == 3:
-            formatted = f"{cc_num}|{month}|{year}|{cvv}"
-            if formatted not in results:
-                results.append(formatted)
-    
-    # Pattern 4: Comma or slash separated
-    pattern4 = r'(\d{15,16})[\s,]+(\d{1,2})[\s,]+(\d{2,4})[\s,]+(\d{3,4})'
-    matches = re.findall(pattern4, text, re.IGNORECASE)
-    for match in matches:
-        cc_num = match[0]
-        month = match[1].zfill(2)
-        year_raw = match[2]
-        cvv = match[3].zfill(3)
-        
-        if len(year_raw) == 4:
-            year = year_raw[2:4]
-        else:
-            year = year_raw.zfill(2)
-        
-        if 1 <= int(month) <= 12 and len(year) == 2 and len(cvv) == 3:
-            formatted = f"{cc_num}|{month}|{year}|{cvv}"
-            if formatted not in results:
-                results.append(formatted)
-    
-    # Pattern 5: Handle dash in card number
-    text_no_dash = re.sub(r'(\d{4})-(\d{4})-(\d{4})-(\d{4})', r'\1\2\3\4', text)
-    if text_no_dash != text:
-        results.extend(extract_cc_from_text(text_no_dash))
-    
-    # Pattern 6: Try to find any 15-16 digit number and look for surrounding month/year/cvv
     if not results:
-        cc_numbers = re.findall(r'\d{15,16}', text)
-        for cc_num in cc_numbers:
-            cc_pos = text.find(str(cc_num))
-            context_start = max(0, cc_pos - 150)
-            context_end = min(len(text), cc_pos + len(str(cc_num)) + 150)
-            context = text[context_start:context_end]
+        pattern2 = r'(\d{15,16})\s+(\d{1,2})\s+(\d{2,4})\s+(\d{3,4})'
+        matches = re.findall(pattern2, text, re.IGNORECASE)
+        for match in matches:
+            cc_num = match[0]
+            month = match[1].zfill(2)
+            year_raw = match[2]
+            cvv = match[3].zfill(3)
             
-            month_match = re.search(r'(?<!\d)(0[1-9]|1[0-2])(?!\d)', context)
-            year_match = re.search(r'(?<!\d)(2[4-9]|30|202[4-9]|2030)(?!\d)', context)
-            cvv_match = re.search(r'(?<!\d)(\d{3,4})(?!\d)', context)
+            if len(year_raw) == 4:
+                year = year_raw[2:4]
+            else:
+                year = year_raw.zfill(2)
             
-            if month_match and year_match and cvv_match:
-                month = month_match.group(1).zfill(2)
-                year_raw = year_match.group(1)
-                cvv = cvv_match.group(1).zfill(3)
-                
-                if len(year_raw) == 4:
-                    year = year_raw[2:4]
-                else:
-                    year = year_raw
-                
-                if 1 <= int(month) <= 12 and len(year) == 2 and len(cvv) == 3:
-                    formatted = f"{cc_num}|{month}|{year}|{cvv}"
-                    if formatted not in results:
-                        results.append(formatted)
+            if 1 <= int(month) <= 12 and len(year) == 2 and len(cvv) == 3:
+                formatted = f"{cc_num}|{month}|{year}|{cvv}"
+                if formatted not in results:
+                    results.append(formatted)
+    
+    # Pattern 3: Handle dash in card number (xxxx-xxxx-xxxx-xxxx)
+    if not results:
+        text_no_dash = re.sub(r'(\d{4})-(\d{4})-(\d{4})-(\d{4})', r'\1\2\3\4', text)
+        if text_no_dash != text:
+            results = extract_cc_from_text(text_no_dash)
     
     return results
 
-# ==================== GATE MODULES ====================
+# ===================================================================
+#                           GATE MODULES
+# ===================================================================
+
 GATE_MODULES = []
 for gate_file in glob.glob('gatet*.py'):
     module_name = gate_file.replace('.py', '')
@@ -386,7 +318,6 @@ for gate_file in glob.glob('gatet*.py'):
     except:
         pass
 
-# If no gate modules found, create a dummy one
 if not GATE_MODULES:
     class DummyGate:
         @staticmethod
@@ -400,12 +331,19 @@ if not GATE_MODULES:
             return random.choice(responses)
     GATE_MODULES.append(DummyGate)
 
-# ==================== BOT INITIALIZATION ====================
-bot = telebot.TeleBot(token, parse_mode="HTML")
+# ===================================================================
+#                          BOT INITIALIZATION
+# ===================================================================
+
+bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 active_checks = {}
 
-# ==================== HELPER FUNCTIONS ====================
+# ===================================================================
+#                          HELPER FUNCTIONS
+# ===================================================================
+
 def is_card_expired(cc):
+    """Check if card is expired"""
     try:
         parts = cc.split("|")
         if len(parts) >= 3:
@@ -428,6 +366,7 @@ def is_card_expired(cc):
     return False
 
 def get_bin_info(cc):
+    """Get BIN information from API"""
     try:
         response = requests.get(f'https://bins.antipublic.cc/bins/{cc[:6]}', timeout=5)
         data = response.json()
@@ -446,6 +385,7 @@ def get_bin_info(cc):
         return "Unknown", "Unknown"
 
 def check_cc_with_gates(cc, user_id=None):
+    """Check CC with random gate, supports proxy"""
     proxy = get_user_proxy(user_id)
     
     gate_name = "N/A"
@@ -474,88 +414,75 @@ def check_cc_with_gates(cc, user_id=None):
     return gate_name, last
 
 def determine_status(last):
+    """Determine status from gateway response with styled output"""
     last_lower = last.lower()
     
-    hit_k = ['thank', 'success":true', 'thank-you', 'successful', 'Successful!', 'confirmed', 'paid', 'transaction_id', 'approved', 'captured']
-    low_k = ['insufficient funds', 'low funds', 'money', 'balance', 'insufficient_funds']
-    three_k = ['additional action', 'authenticate', '3d_secure', 'verification required', 'challenge_required', 'initstripescamodal', 'client_secret', 'strong customer authentication', 'redirect']
+    hit_k = ['thank', 'success":true', 'thank-you', 'successful', 'confirmed', 'paid', 'transaction_id', 'approved', 'captured']
+    low_k = ['insufficient funds', 'low funds', 'money', 'balance']
+    three_k = ['authenticate', '3d_secure', 'verification required', 'challenge_required', 'client_secret', 'redirect']
     
     if any(k in last_lower for k in three_k):
-        return "cvv", "CVV Live 💎"
-    elif any(k in last_lower for k in hit_k) and '"success":false' not in last_lower and 'error' not in last_lower:
-        return "charged", "Payment Successful ✅"
+        return "cvv", "💎 <b>CVV LIVE</b> 💎"
+    elif any(k in last_lower for k in hit_k) and '"success":false' not in last_lower:
+        return "charged", "✅ <b>PAYMENT SUCCESSFUL</b> ✅"
     elif any(k in last_lower for k in low_k):
-        return "low", "Low Funds 💰"
-    elif 'security code is incorrect' in last_lower or 'cvc_check_failure' in last_lower:
-        return "ccn", "CCN Only"
-    elif 'Your card does not support this type of purchase' in last_lower or 'transaction_not_allowed' in last_lower:
-        return "cvv", "CVV Live 💎"
+        return "low", "💰 <b>LOW FUNDS</b> 💰"
+    elif 'security code is incorrect' in last_lower:
+        return "ccn", "⚠️ <b>CCN ONLY</b> ⚠️"
     else:
-        return "declined", "Declined ❌"
+        return "declined", "❌ <b>DECLINED</b> ❌"
 
-# ==================== UI MESSAGE BUILDERS ====================
+# ===================================================================
+#                          UI MESSAGE BUILDERS
+# ===================================================================
+
 def build_single_check_response(cc, gate_name, status_text, bin_text, card_type, taken_time, user_name, remaining):
+    """Build single check response UI"""
     return f"""
-Cc:  {cc}
-Gate: {gate_name}
-State: {status_text}
-Bin: {bin_text}
-{card_type}
+<b>Cc:</b>  <code>{cc}</code>
+<b>Gate:</b> {gate_name}
+<b>State:</b> {status_text}
+<b>Bin:</b> {bin_text}
+<b>{card_type}</b>
 
 ---------–----------------------------------
-Taken: {taken_time}s
-Check By: {user_name}
-Remaining Credits: {remaining}
+<b>Taken:</b> {taken_time}s
+<b>Check By:</b> {user_name}
+<b>Remaining Credits:</b> {remaining}
 """
 
 def build_checking_line(cc):
+    """Build checking line UI"""
     return f"""
-Cc:  {cc}
-Gate: Checking...
-State: Checking...
-Bin: Checking...
+<b>Cc:</b>  <code>{cc}</code>
+<b>Gate:</b> <i>Checking...</i>
+<b>State:</b> <i>Checking...</i>
+<b>Bin:</b> <i>Checking...</i>
 ---------–---------------------------------"""
 
 def build_waiting_line(cc):
+    """Build waiting line UI with animation"""
     return f"""
-Cc:  {cc}
-Waiting ...........🚴‍♂️🚴‍♀️
+<b>Cc:</b>  <code>{cc}</code>
+<i>Waiting ...........🚴‍♂️🚴‍♀️</i>
 ---------–---------------------------------"""
 
 def build_completed_line(cc, gate_name, status_text, bin_text, card_type, taken_time):
+    """Build completed line UI"""
     return f"""
-Cc:  {cc}
-Gate: {gate_name}
-State: {status_text}
-Bin: {bin_text}
-{card_type}
+<b>Cc:</b>  <code>{cc}</code>
+<b>Gate:</b> {gate_name}
+<b>State:</b> {status_text}
+<b>Bin:</b> {bin_text}
+<b>{card_type}</b>
 ---------–---------------------------------"""
 
-# ==================== SEND TO CHANNEL ====================
-def send_to_channel(cc, last, gate_name, user_name, status_type="charged"):
-    if status_type == "charged":
-        title = "🔥 CHARGED HIT"
-    elif status_type == "cvv":
-        title = "💎 CVV LIVE"
-    else:
-        title = "💰 LOW FUNDS"
-    
-    channel_msg = f"""
-{title}
-━━━━━━━━━━━━━━━━━
-Cc: {cc}
-Gate: {gate_name}
-State: {last}
-━━━━━━━━━━━━━━━━━
-By: {user_name}
-"""
-    try:
-        bot.send_message(CHANNEL_ID, channel_msg)
-    except:
-        pass
+# ===================================================================
+#                          SAVE RESULTS
+# ===================================================================
 
-# ==================== SAVE RESULTS ====================
 def save_result_to_file(cc, status_type, bank, country, gate_name):
+    """Save hit/low results to files"""
     try:
         file_path_hit = os.path.join(RESULTS_DIR, "hit.txt")
         file_path_low = os.path.join(RESULTS_DIR, "low.txt")
@@ -571,8 +498,12 @@ def save_result_to_file(cc, status_type, bank, country, gate_name):
     except:
         pass
 
-# ==================== MASS CHECK SESSION ====================
+# ===================================================================
+#                          MASS CHECK SESSION
+# ===================================================================
+
 class MassCheckSession:
+    """Session class for mass check with live updates"""
     def __init__(self, chat_id, msg_id, ccs, user_id, user_name):
         self.chat_id = chat_id
         self.msg_id = msg_id
@@ -587,20 +518,18 @@ class MassCheckSession:
         self.results_lock = threading.Lock()
 
 def update_mass_check_ui(session):
+    """Update mass check UI with live results"""
     if session.stop_event:
         return
     
     lines = []
     for i, cc in enumerate(session.ccs):
-        if i < session.current_index:
-            result = session.results[i] if i < len(session.results) else None
-            if result:
-                lines.append(build_completed_line(
-                    cc, result['gate'], result['status_text'],
-                    result['bin_text'], result['card_type'], result['taken']
-                ))
-            else:
-                lines.append(build_completed_line(cc, "Error", "Unknown", "Unknown", "Unknown", 0))
+        if i < session.current_index and i < len(session.results):
+            r = session.results[i]
+            lines.append(build_completed_line(
+                r['cc'], r['gate'], r['status_text'],
+                r['bin_text'], r['card_type'], r['taken']
+            ))
         elif i == session.current_index:
             lines.append(build_checking_line(cc))
         else:
@@ -609,14 +538,18 @@ def update_mass_check_ui(session):
     taken_total = round(time.time() - session.start_time, 1)
     remaining = get_remaining_limit(session.user_id)
     
-    full_text = "\n".join(lines) + f"\n\nTaken: {taken_total}s\nCheck By: {session.user_name}\nRemaining Credits: {remaining}"
+    full_text = "".join(lines) + f"""
+<b>Taken:</b> {taken_total}s
+<b>Check By:</b> {session.user_name}
+<b>Remaining Credits:</b> {remaining}"""
     
     try:
-        bot.edit_message_text(full_text, chat_id=session.chat_id, message_id=session.msg_id)
+        bot.edit_message_text(full_text, chat_id=session.chat_id, message_id=session.msg_id, parse_mode="HTML")
     except:
         pass
 
 def process_cc_for_mass(session, index, cc):
+    """Process single CC for mass check"""
     if session.stop_event:
         return
     
@@ -634,23 +567,23 @@ def process_cc_for_mass(session, index, cc):
             'bin_text': bin_text,
             'card_type': card_type,
             'taken': taken_time,
-            'raw_status': status_key
+            'status_key': status_key
         })
         session.current_index += 1
     
-    if session.current_index % 2 == 0 or session.current_index == session.total:
-        update_mass_check_ui(session)
+    update_mass_check_ui(session)
     
-    # Send to channel if hit
+    # Save hits to file
     if status_key in ["charged", "cvv", "low"]:
-        user_display = session.user_name
-        send_to_channel(cc, status_text, gate_name, user_display, status_key)
         save_result_to_file(cc, "hit" if status_key == "charged" else "low", 
                           bin_text.split("-")[0].strip(), 
                           bin_text.split("-")[-1].strip() if "-" in bin_text else "Unknown", 
                           gate_name)
 
-# ==================== COMMAND: START ====================
+# ===================================================================
+#                          COMMAND: START
+# ===================================================================
+
 @bot.message_handler(commands=["start"])
 def start(message):
     user_id = message.chat.id
@@ -660,9 +593,9 @@ def start(message):
     banned, until = is_user_banned(user_id)
     if banned:
         if until:
-            bot.reply_to(message, f"⛔ BANNED until {until}")
+            bot.reply_to(message, f"⛔ <b>BANNED UNTIL</b>\n{until}", parse_mode="HTML")
         else:
-            bot.reply_to(message, "⛔ PERMANENTLY BANNED")
+            bot.reply_to(message, "⛔ <b>PERMANENTLY BANNED</b>", parse_mode="HTML")
         return
     
     status = "👑 OWNER" if is_admin else ("💎 VIP" if is_user_allowed(user_id) else "👤 USER")
@@ -671,27 +604,26 @@ def start(message):
     
     welcome_msg = f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━
-🚀 WELCOME TO GOOD HQ BOT 🚀
+🚀 <b>WELCOME TO GOOD HQ BOT</b> 🚀
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-💠 USER ID: <code>{user_id}</code>
-📊 STATUS: {status}
-⏳ VIP EXPIRY: {expiry}
-🎯 REMAINING TODAY: {remaining}/{DAILY_LIMIT if not (is_admin or is_user_allowed(user_id)) else '∞'}
+💠 <b>USER ID:</b> <code>{user_id}</code>
+📊 <b>STATUS:</b> {status}
+⏳ <b>VIP EXPIRY:</b> {expiry}
+🎯 <b>REMAINING TODAY:</b> {remaining}/{DAILY_LIMIT if not (is_admin or is_user_allowed(user_id)) else '∞'}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
-🎮 COMMANDS:
+🎮 <b>COMMANDS:</b>
 
-• Send .txt file - Mass check
-• /v or .v - Mass check with CC
-• /v1 - Single card check
-• /id - Get user ID
-• /proxy - Set your proxy
+• Send .txt file - Mass check (shows hits only)
+• <code>/v</code> or <code>.v</code> - Live mass check
+• <code>/v1</code> - Single card check
+• <code>/id</code> - Get user ID
+• <code>/proxy</code> - Set your proxy
 
-💎 VIP: /vipplans
+💎 <b>VIP:</b> <code>/vipplans</code>
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
-🌐 CHANNEL: @cyber_404io
 """
     markup = types.InlineKeyboardMarkup()
     markup.add(
@@ -700,18 +632,24 @@ def start(message):
     )
     bot.reply_to(message, welcome_msg, reply_markup=markup, parse_mode="HTML")
 
-# ==================== COMMAND: VIP PLANS ====================
+# ===================================================================
+#                          COMMAND: VIP PLANS
+# ===================================================================
+
 @bot.message_handler(commands=["vipplans"])
 def vipplans(message):
     users_data = load_users_data()
     plans = users_data.get('vip_plans', {})
-    text = f"💎 VIP PLANS 💎\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    text = f"💎 <b>VIP PLANS</b> 💎\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
     for plan, info in plans.items():
-        text += f"➜ {plan.replace('_', ' ').title()}: ${info['price']} ({info['days']} days)\n"
+        text += f"➜ <b>{plan.replace('_', ' ').title()}:</b> ${info['price']} ({info['days']} days)\n"
     text += "\n━━━━━━━━━━━━━━━━━━━━━━━━\nContact @cyber_404io to buy!"
-    bot.reply_to(message, text)
+    bot.reply_to(message, text, parse_mode="HTML")
 
-# ==================== COMMAND: SINGLE CHECK /v1 ====================
+# ===================================================================
+#                          COMMAND: SINGLE CHECK
+# ===================================================================
+
 @bot.message_handler(commands=["v1"])
 def single_check(message):
     user_id = message.chat.id
@@ -720,33 +658,29 @@ def single_check(message):
     if not auth_result:
         if auth_msg.startswith("banned_until_"):
             until = auth_msg.replace("banned_until_", "")
-            bot.reply_to(message, f"⛔ BANNED until {until}")
-        elif auth_msg == "banned_permanent":
-            bot.reply_to(message, "⛔ PERMANENTLY BANNED")
-        elif auth_msg == "wrong_group":
-            bot.reply_to(message, "❌ Wrong group! This bot only works in authorized group.")
+            bot.reply_to(message, f"⛔ <b>BANNED UNTIL</b>\n{until}", parse_mode="HTML")
         else:
-            bot.reply_to(message, "❌ Access denied! Use in group only.")
+            bot.reply_to(message, "❌ <b>Access denied! Use in group only.</b>", parse_mode="HTML")
         return
     
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        bot.reply_to(message, "Usage: /v1 cc|mm|yy|cvv\nExample: /v1 4744770173288524|12|26|213")
+        bot.reply_to(message, "Usage: <code>/v1 cc|mm|yy|cvv</code>\nExample: <code>/v1 4744770173288524|12|26|213</code>", parse_mode="HTML")
         return
     
     ccs = extract_cc_from_text(args[1])
     if not ccs:
-        bot.reply_to(message, "❌ No valid CC found in your message.")
+        bot.reply_to(message, "❌ <b>No valid CC found!</b>", parse_mode="HTML")
         return
     
     cc = ccs[0]
     
     if not can_check(user_id, 1):
         remaining = get_remaining_limit(user_id)
-        bot.reply_to(message, f"⚠️ Daily limit reached! Remaining: {remaining}/1000")
+        bot.reply_to(message, f"⚠️ <b>Daily limit reached!</b>\nRemaining: {remaining}/{DAILY_LIMIT}", parse_mode="HTML")
         return
     
-    status_msg = bot.reply_to(message, "🔄 Checking...")
+    status_msg = bot.reply_to(message, "🔄 <b>Checking...</b>", parse_mode="HTML")
     
     bin_text, card_type = get_bin_info(cc)
     start_time = time.time()
@@ -758,18 +692,20 @@ def single_check(message):
     remaining = get_remaining_limit(user_id)
     
     response = build_single_check_response(cc, gate_name, status_text, bin_text, card_type, taken_time, user_name, remaining)
-    bot.edit_message_text(response, chat_id=message.chat.id, message_id=status_msg.message_id)
+    bot.edit_message_text(response, chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="HTML")
     
     increment_user_usage(user_id, 1)
     
     if status_key in ["charged", "cvv", "low"]:
-        send_to_channel(cc, status_text, gate_name, user_name, status_key)
         save_result_to_file(cc, "hit" if status_key == "charged" else "low", 
                           bin_text.split("-")[0].strip(), 
                           bin_text.split("-")[-1].strip() if "-" in bin_text else "Unknown", 
                           gate_name)
 
-# ==================== COMMAND: MASS CHECK /v or .v ====================
+# ===================================================================
+#                          COMMAND: MASS CHECK
+# ===================================================================
+
 @bot.message_handler(commands=["v", ".v"])
 def mass_check(message):
     user_id = message.chat.id
@@ -778,34 +714,45 @@ def mass_check(message):
     if not auth_result:
         if auth_msg.startswith("banned_until_"):
             until = auth_msg.replace("banned_until_", "")
-            bot.reply_to(message, f"⛔ BANNED until {until}")
-        elif auth_msg == "banned_permanent":
-            bot.reply_to(message, "⛔ PERMANENTLY BANNED")
+            bot.reply_to(message, f"⛔ <b>BANNED UNTIL</b>\n{until}", parse_mode="HTML")
         else:
-            bot.reply_to(message, "❌ Access denied! Use in group only.")
+            bot.reply_to(message, "❌ <b>Access denied! Use in group only.</b>", parse_mode="HTML")
         return
     
     ccs = []
     
+    # Check if replying to a message
     if message.reply_to_message:
         replied_text = message.reply_to_message.text or message.reply_to_message.caption or ""
         ccs = extract_cc_from_text(replied_text)
     
+    # Check command arguments
     args = message.text.split(maxsplit=1)
     if len(args) > 1 and not ccs:
         ccs = extract_cc_from_text(args[1])
     
     if not ccs:
-        bot.reply_to(message, "❌ No valid CC found! Please provide CCs or reply to a message containing CCs.")
+        bot.reply_to(message, "❌ <b>No valid CC found!</b>\nUsage: <code>/v cc|mm|yy|cvv</code>", parse_mode="HTML")
         return
     
     if not can_check(user_id, len(ccs)):
         remaining = get_remaining_limit(user_id)
-        bot.reply_to(message, f"⚠️ Need {len(ccs)} checks but only {remaining} remaining today!")
+        bot.reply_to(message, f"⚠️ <b>Need {len(ccs)} checks but only {remaining} remaining today!</b>", parse_mode="HTML")
         return
     
     user_name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.first_name
-    status_msg = bot.reply_to(message, "🔄 Starting mass check...")
+    
+    # Build initial waiting UI
+    waiting_lines = []
+    for cc in ccs:
+        waiting_lines.append(build_waiting_line(cc))
+    
+    initial_text = "".join(waiting_lines) + f"""
+<b>Taken:</b> 0s
+<b>Check By:</b> {user_name}
+<b>Remaining Credits:</b> {get_remaining_limit(user_id)}"""
+    
+    status_msg = bot.reply_to(message, initial_text, parse_mode="HTML")
     
     session = MassCheckSession(
         chat_id=message.chat.id,
@@ -832,28 +779,11 @@ def mass_check(message):
     
     increment_user_usage(user_id, len(ccs))
     active_checks.pop(user_id, None)
-    
-    charged = sum(1 for r in session.results if "Payment Successful" in r['status_text'])
-    cvv = sum(1 for r in session.results if "CVV Live" in r['status_text'])
-    low = sum(1 for r in session.results if "Low Funds" in r['status_text'])
-    declined = len(ccs) - charged - cvv - low
-    
-    final_summary = f"""
 
-━━━━━━━━━━━━━━━━━━━━━━━━
-📊 SUMMARY
-✅ Charged: {charged}
-💎 CVV: {cvv}
-💰 Low: {low}
-❌ Declined: {declined}
-━━━━━━━━━━━━━━━━━━━━━━━━
-"""
-    try:
-        bot.edit_message_text(final_summary, chat_id=session.chat_id, message_id=session.msg_id)
-    except:
-        pass
+# ===================================================================
+#                          COMMAND: GET ID
+# ===================================================================
 
-# ==================== COMMAND: ID ====================
 @bot.message_handler(commands=["id"])
 def get_id(message):
     user = message.from_user
@@ -866,12 +796,12 @@ def get_id(message):
         
         response = f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━
-🆔 REPLIED USER ID INFO
+🆔 <b>REPLIED USER ID INFO</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-👤 Username: {username}
-🆔 User ID: <code>{target_id}</code>
-📅 Name: {first_name}
+👤 <b>Username:</b> {username}
+🆔 <b>User ID:</b> <code>{target_id}</code>
+📅 <b>Name:</b> {first_name}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 """
@@ -881,19 +811,22 @@ def get_id(message):
         
         response = f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━
-🆔 YOUR ID INFO
+🆔 <b>YOUR ID INFO</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-👤 Username: {username}
-🆔 User ID: <code>{user.chat.id}</code>
-📅 Name: {first_name}
+👤 <b>Username:</b> {username}
+🆔 <b>User ID:</b> <code>{message.chat.id}</code>
+📅 <b>Name:</b> {first_name}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 """
     
     bot.reply_to(message, response, parse_mode="HTML")
 
-# ==================== COMMAND: PROXY ====================
+# ===================================================================
+#                          COMMAND: PROXY
+# ===================================================================
+
 @bot.message_handler(commands=["proxy"])
 def set_proxy(message):
     user_id = message.chat.id
@@ -903,28 +836,31 @@ def set_proxy(message):
     if len(args) < 2:
         current = get_user_proxy(user_id)
         if current:
-            bot.reply_to(message, f"🔗 Your proxy:\n{current}\n\nUse /proxy off to disable")
+            bot.reply_to(message, f"🔗 <b>Your proxy:</b>\n<code>{current}</code>\n\nUse <code>/proxy off</code> to disable", parse_mode="HTML")
         else:
-            bot.reply_to(message, "📝 Proxy commands:\n/proxy socks5://user:pass@ip:port\n/proxy off\n/proxy - to view")
+            bot.reply_to(message, "<b>📝 Proxy Commands:</b>\n<code>/proxy socks5://user:pass@ip:port</code>\n<code>/proxy off</code>\n<code>/proxy</code> - to view", parse_mode="HTML")
         return
     
     proxy_input = args[1].strip()
     
     if proxy_input.lower() == "off":
         if remove_user_proxy(user_id):
-            bot.reply_to(message, "✅ Proxy disabled! Using direct connection.")
+            bot.reply_to(message, "✅ <b>Proxy disabled!</b> Using direct connection.", parse_mode="HTML")
         else:
-            bot.reply_to(message, "❌ No active proxy to disable.")
+            bot.reply_to(message, "❌ <b>No active proxy to disable.</b>", parse_mode="HTML")
         return
     
     if not re.match(r'(socks5|http|https)://', proxy_input):
-        bot.reply_to(message, "❌ Invalid format! Use: socks5://user:pass@ip:port")
+        bot.reply_to(message, "❌ <b>Invalid format!</b>\nUse: <code>socks5://user:pass@ip:port</code>", parse_mode="HTML")
         return
     
     set_user_proxy(user_id, proxy_input)
-    bot.reply_to(message, f"✅ Proxy set!\n{proxy_input}\n\nUse /proxy off to disable")
+    bot.reply_to(message, f"✅ <b>Proxy set!</b>\n<code>{proxy_input}</code>\n\nUse <code>/proxy off</code> to disable", parse_mode="HTML")
 
-# ==================== COMMAND: STOP ====================
+# ===================================================================
+#                          CALLBACK: STOP
+# ===================================================================
+
 @bot.callback_query_handler(func=lambda call: call.data == 'stop')
 def stop_check(call):
     user_id = call.message.chat.id
@@ -934,7 +870,10 @@ def stop_check(call):
     else:
         bot.answer_callback_query(call.id, "❌ No active check")
 
-# ==================== FILE HANDLER ====================
+# ===================================================================
+#                          FILE HANDLER
+# ===================================================================
+
 @bot.message_handler(content_types=["document"])
 def handle_file(message):
     user_id = message.chat.id
@@ -943,9 +882,9 @@ def handle_file(message):
     if not auth_result:
         if auth_msg.startswith("banned_until_"):
             until = auth_msg.replace("banned_until_", "")
-            bot.reply_to(message, f"⛔ BANNED until {until}")
+            bot.reply_to(message, f"⛔ <b>BANNED UNTIL</b>\n{until}", parse_mode="HTML")
         else:
-            bot.reply_to(message, "❌ Access denied!")
+            bot.reply_to(message, "❌ <b>Access denied!</b>", parse_mode="HTML")
         return
     
     try:
@@ -956,20 +895,21 @@ def handle_file(message):
         ccs = extract_cc_from_text(content)
         
         if not ccs:
-            bot.reply_to(message, "❌ No valid CC found in file!")
+            bot.reply_to(message, "❌ <b>No valid CC found in file!</b>", parse_mode="HTML")
             return
         
         if not can_check(user_id, len(ccs)):
             remaining = get_remaining_limit(user_id)
-            bot.reply_to(message, f"⚠️ Need {len(ccs)} checks but only {remaining} remaining!")
+            bot.reply_to(message, f"⚠️ <b>Need {len(ccs)} checks but only {remaining} remaining!</b>", parse_mode="HTML")
             return
         
-        status_msg = bot.reply_to(message, f"🔄 Checking {len(ccs)} cards... (Showing hits only)")
+        status_msg = bot.reply_to(message, f"🔄 <b>Checking {len(ccs)} cards... (Showing hits only)</b>", parse_mode="HTML")
         
         user_name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.first_name
         hits = []
         
         for i, cc in enumerate(ccs):
+            # Skip expired cards silently
             if is_card_expired(cc):
                 increment_user_usage(user_id, 1)
                 continue
@@ -979,6 +919,7 @@ def handle_file(message):
             taken_time = round(time.time() - start_time, 1)
             status_key, status_text = determine_status(last)
             
+            # Only show hit/cvv/low results
             if status_key in ["charged", "cvv", "low"]:
                 bin_text, card_type = get_bin_info(cc)
                 result = build_single_check_response(
@@ -987,36 +928,40 @@ def handle_file(message):
                 )
                 hits.append(result)
                 
-                send_to_channel(cc, status_text, gate_name, user_name, status_key)
                 save_result_to_file(cc, "hit" if status_key == "charged" else "low", 
                                   bin_text.split("-")[0].strip(), 
                                   bin_text.split("-")[-1].strip() if "-" in bin_text else "Unknown", 
                                   gate_name)
             
+            # Update progress every 10 cards
             if (i + 1) % 10 == 0 or (i + 1) == len(ccs):
                 try:
-                    bot.edit_message_text(f"🔄 Progress: {i+1}/{len(ccs)} | Hits: {len(hits)}", 
-                                         chat_id=message.chat.id, message_id=status_msg.message_id)
+                    bot.edit_message_text(f"🔄 <b>Progress:</b> {i+1}/{len(ccs)} | <b>Hits:</b> {len(hits)}", 
+                                         chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="HTML")
                 except:
                     pass
             
             increment_user_usage(user_id, 1)
         
+        # Send final results
         if hits:
-            final_msg = f"✅ FILE CHECK COMPLETE\n━━━━━━━━━━━━━━━━━━━━━━━━\nTotal Hits: {len(hits)}\n\n" + "\n━━━━━━━━━━━━━━━━━━━━━━━━\n".join(hits)
+            final_msg = f"✅ <b>FILE CHECK COMPLETE</b>\n━━━━━━━━━━━━━━━━━━━━━━━━\n<b>Total Hits:</b> {len(hits)}\n\n" + "\n━━━━━━━━━━━━━━━━━━━━━━━━\n".join(hits)
             if len(final_msg) > 4000:
                 for j in range(0, len(final_msg), 4000):
-                    bot.send_message(message.chat.id, final_msg[j:j+4000])
+                    bot.send_message(message.chat.id, final_msg[j:j+4000], parse_mode="HTML")
             else:
-                bot.edit_message_text(final_msg, chat_id=message.chat.id, message_id=status_msg.message_id)
+                bot.edit_message_text(final_msg, chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="HTML")
         else:
-            bot.edit_message_text(f"✅ CHECK COMPLETE!\nCards: {len(ccs)}\nHits: 0", 
-                                 chat_id=message.chat.id, message_id=status_msg.message_id)
+            bot.edit_message_text(f"✅ <b>CHECK COMPLETE!</b>\nCards: {len(ccs)}\nHits: 0", 
+                                 chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="HTML")
     
     except Exception as e:
-        bot.reply_to(message, f"❌ Error: {str(e)[:100]}")
+        bot.reply_to(message, f"❌ <b>Error:</b> {str(e)[:100]}", parse_mode="HTML")
 
-# ==================== ADMIN COMMANDS ====================
+# ===================================================================
+#                          ADMIN COMMANDS
+# ===================================================================
+
 @bot.message_handler(commands=["addvip"])
 def add_vip(message):
     if str(message.chat.id) != str(ADMIN_ID):
@@ -1024,7 +969,7 @@ def add_vip(message):
     
     args = message.text.split()
     if len(args) < 3:
-        bot.reply_to(message, "Usage: /addvip [user_id] [days]")
+        bot.reply_to(message, "Usage: <code>/addvip [user_id] [days]</code>", parse_mode="HTML")
         return
     
     target_id = args[1]
@@ -1039,9 +984,9 @@ def add_vip(message):
     users_data['allowed_users'][target_id]['vip_expiry'] = expiry_str
     save_users_data(users_data)
     
-    bot.reply_to(message, f"✅ User {target_id} added as VIP!\nExpiry: {expiry_str}")
+    bot.reply_to(message, f"✅ <b>User {target_id} added as VIP!</b>\nExpiry: {expiry_str}", parse_mode="HTML")
     try:
-        bot.send_message(target_id, f"🎉 VIP activated for {days} days!\nExpiry: {expiry_str}")
+        bot.send_message(target_id, f"🎉 <b>VIP activated for {days} days!</b>\nExpiry: {expiry_str}", parse_mode="HTML")
     except:
         pass
 
@@ -1052,7 +997,7 @@ def ban_user_cmd(message):
     
     args = message.text.split()
     if len(args) < 2:
-        bot.reply_to(message, "Usage: /ban [user_id] [hours]\nExample: /ban 5831292144 24\nUse 0 for permanent")
+        bot.reply_to(message, "Usage: <code>/ban [user_id] [hours]</code>\nExample: <code>/ban 5831292144 24</code>\nUse 0 for permanent", parse_mode="HTML")
         return
     
     target_id = args[1]
@@ -1060,10 +1005,10 @@ def ban_user_cmd(message):
     reason = " ".join(args[3:]) if len(args) > 3 else "Violation of rules"
     
     duration = ban_user(target_id, hours, reason)
-    bot.reply_to(message, f"✅ User {target_id} banned for {duration}")
+    bot.reply_to(message, f"✅ <b>User {target_id} banned for {duration}</b>", parse_mode="HTML")
     
     try:
-        bot.send_message(target_id, f"⛔ BANNED\nReason: {reason}\nDuration: {duration}")
+        bot.send_message(target_id, f"⛔ <b>BANNED</b>\nReason: {reason}\nDuration: {duration}", parse_mode="HTML")
     except:
         pass
 
@@ -1074,14 +1019,14 @@ def unban_user_cmd(message):
     
     args = message.text.split()
     if len(args) < 2:
-        bot.reply_to(message, "Usage: /unban [user_id]")
+        bot.reply_to(message, "Usage: <code>/unban [user_id]</code>", parse_mode="HTML")
         return
     
     target_id = args[1]
     if unban_user(target_id):
-        bot.reply_to(message, f"✅ User {target_id} unbanned!")
+        bot.reply_to(message, f"✅ <b>User {target_id} unbanned!</b>", parse_mode="HTML")
     else:
-        bot.reply_to(message, f"❌ User {target_id} is not banned.")
+        bot.reply_to(message, f"❌ <b>User {target_id} is not banned.</b>", parse_mode="HTML")
 
 @bot.message_handler(commands=["bannedlist"])
 def banned_list(message):
@@ -1090,15 +1035,15 @@ def banned_list(message):
     
     banned = load_banned()
     if not banned:
-        bot.reply_to(message, "📋 No banned users.")
+        bot.reply_to(message, "📋 <b>No banned users.</b>", parse_mode="HTML")
         return
     
-    text = "📋 BANNED USERS\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    text = "📋 <b>BANNED USERS</b>\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
     for uid, info in banned.items():
         until = info.get('banned_until', 'Permanent')
-        text += f"ID: {uid}\nUntil: {until}\nReason: {info.get('reason', 'Unknown')}\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        text += f"👤 <b>ID:</b> {uid}\n⏰ <b>Until:</b> {until}\n📝 <b>Reason:</b> {info.get('reason', 'Unknown')}\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
     
-    bot.reply_to(message, text[:4000])
+    bot.reply_to(message, text[:4000], parse_mode="HTML")
 
 @bot.message_handler(commands=["broadcast"])
 def broadcast(message):
@@ -1107,7 +1052,7 @@ def broadcast(message):
     
     msg_text = message.text.replace("/broadcast ", "")
     if not msg_text or msg_text == "/broadcast":
-        bot.reply_to(message, "Usage: /broadcast [message]")
+        bot.reply_to(message, "Usage: <code>/broadcast [message]</code>", parse_mode="HTML")
         return
     
     users_data = load_users_data()
@@ -1119,12 +1064,12 @@ def broadcast(message):
     fail = 0
     for user_id in all_users:
         try:
-            bot.send_message(user_id, f"📢 ADMIN BROADCAST:\n\n{msg_text}")
+            bot.send_message(user_id, f"📢 <b>ADMIN BROADCAST:</b>\n\n{msg_text}", parse_mode="HTML")
             success += 1
         except:
             fail += 1
     
-    bot.reply_to(message, f"✅ Broadcast sent!\nSuccess: {success}\nFailed: {fail}")
+    bot.reply_to(message, f"✅ <b>Broadcast sent!</b>\nSuccess: {success}\nFailed: {fail}", parse_mode="HTML")
 
 @bot.message_handler(commands=["stats"])
 def stats(message):
@@ -1144,17 +1089,20 @@ def stats(message):
             today_checks += days[today].get('count', 0)
     
     bot.reply_to(message, f"""
-📊 BOT STATISTICS
+📊 <b>BOT STATISTICS</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━
-👥 Total Users: {total_users}
-⛔ Banned: {total_banned}
-📊 Today's Checks: {today_checks}
-⚙️ Active Gates: {len(GATE_MODULES)}
-💎 Daily Limit: {DAILY_LIMIT}
+👥 <b>Total Users:</b> {total_users}
+⛔ <b>Banned:</b> {total_banned}
+📊 <b>Today's Checks:</b> {today_checks}
+⚙️ <b>Active Gates:</b> {len(GATE_MODULES)}
+💎 <b>Daily Limit:</b> {DAILY_LIMIT}
 ━━━━━━━━━━━━━━━━━━━━━━━━
-""")
+""", parse_mode="HTML")
 
-# ==================== MAIN ====================
+# ===================================================================
+#                              MAIN
+# ===================================================================
+
 if __name__ == "__main__":
     print("=" * 40)
     print("🤖 GOOD HQ BOT STARTED")
