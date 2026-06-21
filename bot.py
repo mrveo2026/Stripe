@@ -144,8 +144,8 @@ def init_database():
 # --- RATE LIMITING ---
 class RateLimiter:
     def __init__(self):
-        self.max_checks_per_minute = 60
-        self.max_checks_per_day = 5000
+        self.max_checks_per_minute = 4000
+        self.max_checks_per_day = 40000
         self._lock = threading.Lock()
     
     def check_limit(self, user_id):
