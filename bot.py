@@ -801,7 +801,7 @@ def process_card_file(message, cards):
             break
         future = thread_pool.submit(user_id, process_cc, cc, message, stats)
         futures.append(future)
-        time.sleep(0.05)
+        time.sleep(0.09)
     
     for future in futures:
         try:
