@@ -14,6 +14,7 @@ from queue import Queue
 import logging
 from functools import lru_cache
 import hashlib
+import re
 
 # --- LOGGING ---
 logging.basicConfig(
@@ -26,6 +27,28 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# --- HTML CLEANER ---
+def clean_html(text):
+    """Remove HTML tags and clean text for Telegram"""
+    if not text:
+        return "N/A"
+    text = str(text)
+    # Remove HTML tags
+    text = re.sub(r'<[^>]+>', '', text)
+    # Remove DOCTYPE
+    text = re.sub(r'<!DOCTYPE[^>]*>', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'<!doctype[^>]*>', '', text, flags=re.IGNORECASE)
+    # Remove extra whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    # Escape special characters
+    text = text.replace('&', '&amp;')
+    text = text.replace('<', '&lt;')
+    text = text.replace('>', '&gt;')
+    # Limit length
+    if len(text) > 300:
+        text = text[:297] + '...'
+    return text if text else "N/A"
+
 # --- DATABASE WITH CONNECTION POOLING ---
 class DatabasePool:
     def __init__(self, db_file, max_connections=10):
@@ -34,7 +57,6 @@ class DatabasePool:
         self._connections = Queue(maxsize=max_connections)
         self._lock = threading.Lock()
         
-        # Initialize connections
         for _ in range(max_connections):
             conn = sqlite3.connect(db_file, check_same_thread=False, timeout=30)
             conn.row_factory = sqlite3.Row
@@ -141,56 +163,16 @@ def init_database():
         conn.commit()
         logger.info("Database initialized successfully")
 
-# --- RATE LIMITING ---
+# --- RATE LIMITING (DISABLED - UNLIMITED) ---
 class RateLimiter:
     def __init__(self):
-        self.max_checks_per_minute = 4000
-        self.max_checks_per_day = 40000
+        self.max_checks_per_minute = 999999
+        self.max_checks_per_day = 999999
         self._lock = threading.Lock()
     
     def check_limit(self, user_id):
-        user_id_str = str(user_id)
-        
-        with db_pool.get_connection() as conn:
-            cursor = conn.cursor()
-            now = datetime.now()
-            today = now.strftime('%Y-%m-%d')
-            
-            cursor.execute('SELECT * FROM rate_limits WHERE user_id = ?', (user_id_str,))
-            row = cursor.fetchone()
-            
-            if row:
-                last_check = datetime.strptime(row['last_check'], '%Y-%m-%d %H:%M:%S')
-                time_diff = (now - last_check).total_seconds() / 60
-                
-                if time_diff >= 1:
-                    check_count = 0
-                else:
-                    check_count = row['check_count']
-                
-                if row['daily_date'] != today:
-                    daily_count = 0
-                else:
-                    daily_count = row['daily_count']
-                
-                if check_count >= self.max_checks_per_minute:
-                    return False, f"Rate limit: {self.max_checks_per_minute} checks per minute"
-                if daily_count >= self.max_checks_per_day:
-                    return False, f"Daily limit: {self.max_checks_per_day} checks per day"
-                
-                cursor.execute('''
-                    UPDATE rate_limits 
-                    SET last_check = ?, check_count = ?, daily_count = ?, daily_date = ?
-                    WHERE user_id = ?
-                ''', (now.strftime('%Y-%m-%d %H:%M:%S'), check_count + 1, daily_count + 1, today, user_id_str))
-            else:
-                cursor.execute('''
-                    INSERT INTO rate_limits (user_id, last_check, check_count, daily_count, daily_date)
-                    VALUES (?, ?, 1, 1, ?)
-                ''', (user_id_str, now.strftime('%Y-%m-%d %H:%M:%S'), today))
-            
-            conn.commit()
-            return True, "OK"
+        # Rate limiting is disabled - always return True
+        return True, "OK"
 
 # Initialize rate limiter
 rate_limiter = RateLimiter()
@@ -366,8 +348,6 @@ proxy_manager = ProxyManager()
 # --- BOT CONFIGURATION ---
 token = '8910582957:AAEtLRnEePDQ-xA81fOGMjyWpG8NeOzbzP0'
 ADMIN_ID = 5831292144
-API_ID = '37536372'
-API_HASH = 'abcebb0aa8c00b3ccb4a3172b566325d'
 CHANNEL_ID = '-1003763847738' 
 
 RESULTS_DIR = "results"
@@ -512,7 +492,7 @@ def log_usage(user_id, cc, status, gate_name, bank, country, response, proxy_use
             cursor.execute('''
                 INSERT INTO usage_logs (user_id, cc, status, gate_name, bank, country, response, proxy_used, execution_time)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (str(user_id), cc[:6] + '****' + cc[-4:], status, gate_name, bank, country, response[:200], proxy_used, execution_time))
+            ''', (str(user_id), cc[:6] + '****' + cc[-4:], status, gate_name, bank, country, clean_html(response)[:200], proxy_used, execution_time))
             
             cursor.execute('''
                 UPDATE users 
@@ -619,7 +599,7 @@ def update_ui(message, stats):
         
         last_cc = stats.get('last_cc', 'N/A')
         last_gate = stats.get('last_gate', 'N/A')
-        last_resp = stats.get('last_resp', 'Waiting...')
+        last_resp = clean_html(stats.get('last_resp', 'Waiting...'))
         last_proxy = stats.get('last_proxy', 'N/A')
         
         text = f"""
@@ -650,11 +630,12 @@ def process_cc(cc, message, stats):
     
     stats['last_cc'] = cc
     
-    allowed, msg = rate_limiter.check_limit(message.chat.id)
-    if not allowed:
-        stats['stop_event'] = True
-        bot.send_message(message.chat.id, f"⚠️ {msg}")
-        return
+    # Rate limit is disabled - always allowed
+    # allowed, msg = rate_limiter.check_limit(message.chat.id)
+    # if not allowed:
+    #     stats['stop_event'] = True
+    #     bot.send_message(message.chat.id, f"⚠️ {msg}")
+    #     return
     
     proxy = proxy_manager.get_proxy_dict(message.chat.id)
     proxy_url = proxy_manager.get_current_proxy_url(message.chat.id) or "Direct Connection"
@@ -694,6 +675,8 @@ def process_cc(cc, message, stats):
             last = "Gateway Error"
             logger.error(f"Gate error: {e}")
     
+    # Clean HTML from response
+    last = clean_html(last)
     stats['last_resp'] = last
     execution_time = time.time() - start_time
     last_lower = last.lower()
@@ -702,7 +685,7 @@ def process_cc(cc, message, stats):
     is_low = False
     is_3ds = False
     
-    hit_k = ['thank', 'success":true', 'thank-you', 'successful', 'Successful!', 'confirmed', 'paid', 'transaction_id']
+    hit_k = ['thank', 'success":true', 'thank-you', 'successful', 'successful!', 'confirmed', 'paid', 'transaction_id']
     low_k = ['insufficient funds', 'low funds', 'money', 'balance']
     three_k = ['additional action', 'authenticate', '3d_secure', 'verification required', 'challenge_required', 'initstripescamodal', 'client_secret', 'strong customer authentication']
     
@@ -777,10 +760,11 @@ def process_card_file(message, cards):
     if user_id not in proxy_manager.user_proxies:
         proxy_manager.load_user_proxy(user_id)
     
-    allowed, msg = rate_limiter.check_limit(user_id)
-    if not allowed:
-        bot.reply_to(message, f"⚠️ {msg}")
-        return
+    # Rate limit is disabled
+    # allowed, msg = rate_limiter.check_limit(user_id)
+    # if not allowed:
+    #     bot.reply_to(message, f"⚠️ {msg}")
+    #     return
     
     thread_pool.cancel_user_tasks(user_id)
     
@@ -796,12 +780,13 @@ def process_card_file(message, cards):
     update_ui(message, stats)
     
     futures = []
+    # Optimized delay - 0.02 seconds for faster processing while avoiding API limits
     for cc in cards:
         if stats['stop_event']: 
             break
         future = thread_pool.submit(user_id, process_cc, cc, message, stats)
         futures.append(future)
-        time.sleep(0.09)
+        time.sleep(0.02)  # 0.02 sec delay - balances speed and API limits
     
     for future in futures:
         try:
@@ -1163,10 +1148,11 @@ def handle_docs(message):
         bot.reply_to(message, f"{get_emj('✅')} <b>{count} PROXIES LOADED!</b>\n\nAuto-rotation enabled.")
         return
     
-    allowed, msg = rate_limiter.check_limit(message.chat.id)
-    if not allowed:
-        bot.reply_to(message, f"⚠️ {msg}")
-        return
+    # Rate limit is disabled
+    # allowed, msg = rate_limiter.check_limit(message.chat.id)
+    # if not allowed:
+    #     bot.reply_to(message, f"⚠️ {msg}")
+    #     return
     
     process_card_file(message, lines)
 
@@ -1190,7 +1176,7 @@ def n_cb(call):
 if __name__ == "__main__":
     bot.delete_webhook()
     print("="*50)
-    print("✅ GOOD HQ BOT STARTED (Production Ready)")
+    print("✅ GOOD HQ BOT STARTED (Professional Edition)")
     print("="*50)
     print(f"📊 Database: {DB_FILE}")
     print(f"📁 Results Dir: {RESULTS_DIR}")
@@ -1199,15 +1185,17 @@ if __name__ == "__main__":
     print(f"⚡ Thread Pool: 30 workers")
     print(f"🔗 DB Pool: 20 connections")
     print("="*50)
-    print("📌 PRODUCTION FEATURES:")
+    print("📌 PROFESSIONAL FEATURES:")
+    print("  ✅ Unlimited Rate (No Limits)")
+    print("  ✅ HTML Tag Cleaner")
+    print("  ✅ Optimized Delay (0.02s)")
     print("  ✅ Connection Pooling")
-    print("  ✅ Rate Limiting (60/min, 5000/day)")
     print("  ✅ Global Thread Pool")
     print("  ✅ Database Indexes")
     print("  ✅ Logging System")
-    print("  ✅ Auto-retry on DB lock")
     print("  ✅ Memory Caching")
     print("  ✅ Task Cancellation")
+    print("  ✅ Auto-retry on DB lock")
     print("="*50)
-    logger.info("Bot started successfully")
-    bot.infinity_polling()
+    logger.info("Bot started successfully (Professional Edition)")
+    bot.infinity_polling(timeout=60, long_polling_timeout=60)
