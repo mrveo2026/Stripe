@@ -38,8 +38,8 @@ class DatabasePool:
         for _ in range(max_connections):
             conn = sqlite3.connect(db_file, check_same_thread=False, timeout=30)
             conn.row_factory = sqlite3.Row
-            conn.execute('PRAGMA journal_mode=WAL')  # WAL mode for better concurrency
-            conn.execute('PRAGMA busy_timeout=30000')  # 30 second timeout
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.execute('PRAGMA busy_timeout=30000')
             self._connections.put(conn)
     
     @contextmanager
@@ -67,7 +67,6 @@ def init_database():
     with db_pool.get_connection() as conn:
         cursor = conn.cursor()
         
-        # Users table with indexes
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 user_id TEXT PRIMARY KEY,
@@ -88,7 +87,6 @@ def init_database():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_vip ON users(vip_expiry)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_active ON users(last_active)')
         
-        # Usage logs table with indexes
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS usage_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -108,7 +106,6 @@ def init_database():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_logs_status ON usage_logs(status)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_logs_time ON usage_logs(checked_at)')
         
-        # VIP plans table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS vip_plans (
                 plan_id TEXT PRIMARY KEY,
@@ -119,7 +116,6 @@ def init_database():
             )
         ''')
         
-        # Rate limiting table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS rate_limits (
                 user_id TEXT PRIMARY KEY,
@@ -130,7 +126,6 @@ def init_database():
             )
         ''')
         
-        # Insert default VIP plans
         default_plans = [
             ('1_month', '1 Month', 10, 30),
             ('3_months', '3 Months', 25, 90),
@@ -154,7 +149,6 @@ class RateLimiter:
         self._lock = threading.Lock()
     
     def check_limit(self, user_id):
-        """Check if user has exceeded rate limits"""
         user_id_str = str(user_id)
         
         with db_pool.get_connection() as conn:
@@ -167,27 +161,23 @@ class RateLimiter:
             
             if row:
                 last_check = datetime.strptime(row['last_check'], '%Y-%m-%d %H:%M:%S')
-                time_diff = (now - last_check).total_seconds() / 60  # minutes
+                time_diff = (now - last_check).total_seconds() / 60
                 
-                # Reset minute counter if more than 1 minute passed
                 if time_diff >= 1:
                     check_count = 0
                 else:
                     check_count = row['check_count']
                 
-                # Reset daily counter if new day
                 if row['daily_date'] != today:
                     daily_count = 0
                 else:
                     daily_count = row['daily_count']
                 
-                # Check limits
                 if check_count >= self.max_checks_per_minute:
                     return False, f"Rate limit: {self.max_checks_per_minute} checks per minute"
                 if daily_count >= self.max_checks_per_day:
                     return False, f"Daily limit: {self.max_checks_per_day} checks per day"
                 
-                # Update counters
                 cursor.execute('''
                     UPDATE rate_limits 
                     SET last_check = ?, check_count = ?, daily_count = ?, daily_date = ?
@@ -211,14 +201,12 @@ class ProxyManager:
         self.user_proxies = {}
         self.user_proxy_index = {}
         self.locks = {}
-        self.proxy_cache = {}  # Cache working proxies
+        self.proxy_cache = {}
         self.cache_lock = threading.Lock()
     
     def load_user_proxy(self, user_id):
-        """Load proxy from database with caching"""
         user_id_str = str(user_id)
         
-        # Check cache first
         with self.cache_lock:
             if user_id_str in self.proxy_cache:
                 proxy_url = self.proxy_cache[user_id_str]
@@ -233,7 +221,6 @@ class ProxyManager:
             if result and result['proxy_url']:
                 proxy_url = result['proxy_url']
                 
-                # Cache it
                 with self.cache_lock:
                     self.proxy_cache[user_id_str] = proxy_url
                 
@@ -242,7 +229,6 @@ class ProxyManager:
         return False
     
     def _set_proxy_memory(self, user_id, proxy_url):
-        """Set proxy in memory"""
         if '://' in proxy_url:
             proxy_dict = {
                 'http': proxy_url,
@@ -264,10 +250,8 @@ class ProxyManager:
             self.user_proxy_index[user_id] = 0
     
     def set_user_proxy(self, user_id, proxy_url):
-        """Set single proxy for user"""
         user_id_str = str(user_id)
         
-        # Save to database
         with db_pool.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -277,16 +261,13 @@ class ProxyManager:
             ''', (proxy_url, user_id_str))
             conn.commit()
         
-        # Update cache
         with self.cache_lock:
             self.proxy_cache[user_id_str] = proxy_url
         
-        # Update memory
         self._set_proxy_memory(user_id_str, proxy_url)
         logger.info(f"Proxy set for user {user_id_str}: {proxy_url}")
     
     def set_user_proxy_list(self, user_id, proxy_list):
-        """Set multiple proxies for user"""
         user_id_str = str(user_id)
         proxies = []
         
@@ -315,7 +296,6 @@ class ProxyManager:
                 self.user_proxies[user_id_str] = proxies
                 self.user_proxy_index[user_id_str] = 0
             
-            # Save to database (store as JSON)
             proxy_urls = [p['http'] for p in proxies]
             with db_pool.get_connection() as conn:
                 cursor = conn.cursor()
@@ -326,7 +306,6 @@ class ProxyManager:
                 ''', (json.dumps(proxy_urls), user_id_str))
                 conn.commit()
             
-            # Update cache
             with self.cache_lock:
                 self.proxy_cache[user_id_str] = json.dumps(proxy_urls)
             
@@ -335,7 +314,6 @@ class ProxyManager:
         return 0
     
     def get_proxy_dict(self, user_id):
-        """Get next proxy for user (auto rotation)"""
         user_id_str = str(user_id)
         
         if user_id_str in self.user_proxies and self.user_proxies[user_id_str]:
@@ -344,13 +322,11 @@ class ProxyManager:
                 if proxies:
                     idx = self.user_proxy_index[user_id_str]
                     proxy = proxies[idx]
-                    # Rotate to next for next request
                     self.user_proxy_index[user_id_str] = (idx + 1) % len(proxies)
                     return proxy
         return None
     
     def get_current_proxy_url(self, user_id):
-        """Get current proxy URL string"""
         user_id_str = str(user_id)
         if user_id_str in self.user_proxies and self.user_proxies[user_id_str]:
             with self.locks[user_id_str]:
@@ -361,7 +337,6 @@ class ProxyManager:
         return None
     
     def remove_user_proxy(self, user_id):
-        """Remove user's proxy"""
         user_id_str = str(user_id)
         if user_id_str in self.user_proxies:
             del self.user_proxies[user_id_str]
@@ -370,7 +345,6 @@ class ProxyManager:
         if user_id_str in self.locks:
             del self.locks[user_id_str]
         
-        # Clear cache
         with self.cache_lock:
             if user_id_str in self.proxy_cache:
                 del self.proxy_cache[user_id_str]
@@ -399,8 +373,10 @@ CHANNEL_ID = '-1003763847738'
 RESULTS_DIR = "results"
 if not os.path.exists(RESULTS_DIR):
     os.makedirs(RESULTS_DIR)
+
 DB_FILE = 'bot_database.db'
-bot = telebot.TeleBot(token, parse_mode="HTML") 
+bot = telebot.TeleBot(token, parse_mode="HTML")
+
 # Initialize database
 init_database()
 
@@ -449,7 +425,6 @@ class GlobalThreadPool:
             future = self.executor.submit(fn, *args, **kwargs)
             self.active_tasks[user_id].append(future)
             
-            # Clean up completed tasks
             self.active_tasks[user_id] = [f for f in self.active_tasks[user_id] if not f.done()]
             
             return future
@@ -465,10 +440,9 @@ class GlobalThreadPool:
 # Initialize global thread pool
 thread_pool = GlobalThreadPool(max_workers=30)
 
-# --- USER FUNCTIONS (with caching) ---
+# --- USER FUNCTIONS ---
 @lru_cache(maxsize=1000)
 def get_user_data_cached(user_id):
-    """Cached user data retrieval"""
     with db_pool.get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM users WHERE user_id = ?', (str(user_id),))
@@ -496,7 +470,6 @@ def create_or_update_user(user_id, username=None, first_name=None, last_name=Non
             ''', (str(user_id), username, first_name, last_name))
         
         conn.commit()
-        # Clear cache
         get_user_data_cached.cache_clear()
 
 def is_user_allowed(user_id):
@@ -533,7 +506,6 @@ def add_vip_user(user_id, days):
     get_user_data_cached.cache_clear()
 
 def log_usage(user_id, cc, status, gate_name, bank, country, response, proxy_used, execution_time):
-    """Asynchronous logging to avoid blocking"""
     try:
         with db_pool.get_connection() as conn:
             cursor = conn.cursor()
@@ -561,6 +533,8 @@ def log_usage(user_id, cc, status, gate_name, bank, country, response, proxy_use
         logger.error(f"Logging error: {e}")
 
 # --- CORE FUNCTIONS ---
+active_checks = {}
+
 def is_card_expired(cc):
     try:
         parts = cc.split("|")
@@ -591,7 +565,6 @@ def save_result_to_file(cc, status_type, bank, country, gate_name):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         line = f"{cc}|{bank}|{country}|{gate_name}|{timestamp}\n"
         
-        # Use file locking for concurrent writes
         with threading.Lock():
             if status_type == "hit":
                 with open(file_path_hit, 'a', encoding='utf-8') as f:
@@ -628,6 +601,41 @@ def send_result_files(chat_id):
     except Exception as e:
         logger.error(f"Send file error: {e}")
 
+def update_ui(message, stats):
+    if stats.get('stop_event', False): 
+        return
+    
+    try:
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            types.InlineKeyboardButton(f"✅ CHARGED: {stats['ch']}", callback_data='n'),
+            types.InlineKeyboardButton(f"💳 CCN: {stats['ccn']}", callback_data='n'),
+            types.InlineKeyboardButton(f"💎 CVV: {stats['cvv']}", callback_data='n'),
+            types.InlineKeyboardButton(f"💰 LOW: {stats['low']}", callback_data='n'),
+            types.InlineKeyboardButton(f"❌ DECLINED: {stats['dd']}", callback_data='n'),
+            types.InlineKeyboardButton(f"📊 PROGRESS: {stats['checked']}/{stats['total']}", callback_data='n'),
+            types.InlineKeyboardButton(f"🛑 STOP", callback_data='stop')
+        )
+        
+        last_cc = stats.get('last_cc', 'N/A')
+        last_gate = stats.get('last_gate', 'N/A')
+        last_resp = stats.get('last_resp', 'Waiting...')
+        last_proxy = stats.get('last_proxy', 'N/A')
+        
+        text = f"""
+{get_emj('🔄')} <b>FAST CHECKING IN PROGRESS...</b>
+<b>━━━━━━━━━━━━━━</b>
+{get_emj('💳')} <b>LAST CC:</b> <code>{last_cc}</code>
+{get_emj('🎯')} <b>GATE:</b> <code>{last_gate}</code>
+{get_emj('📝')} <b>RESP:</b> <code>{last_resp}</code>
+{get_emj('🌐')} <b>PROXY:</b> <code>{last_proxy}</code>
+<b>━━━━━━━━━━━━━━</b>
+<b>BY: @cyber_404io</b>
+"""
+        bot.edit_message_text(chat_id=message.chat.id, message_id=stats['msg_id'], text=text, reply_markup=markup)
+    except Exception as e:
+        logger.error(f"UI update error: {e}")
+
 def process_cc(cc, message, stats):
     if stats.get('stop_event', False): 
         return
@@ -642,14 +650,12 @@ def process_cc(cc, message, stats):
     
     stats['last_cc'] = cc
     
-    # Rate limiting check
     allowed, msg = rate_limiter.check_limit(message.chat.id)
     if not allowed:
         stats['stop_event'] = True
         bot.send_message(message.chat.id, f"⚠️ {msg}")
         return
     
-    # Get proxy for this user
     proxy = proxy_manager.get_proxy_dict(message.chat.id)
     proxy_url = proxy_manager.get_current_proxy_url(message.chat.id) or "Direct Connection"
     stats['last_proxy'] = proxy_url
@@ -758,7 +764,6 @@ def process_cc(cc, message, stats):
         stats['dd'] += 1
         status_type = "declined"
     
-    # Log asynchronously
     if status_type:
         thread_pool.submit('logging', log_usage, message.chat.id, cc, status_type, gate_name, bank, country, last, proxy_url, execution_time)
     
@@ -766,55 +771,17 @@ def process_cc(cc, message, stats):
     if stats['checked'] % 5 == 0 or stats['checked'] == stats['total']: 
         update_ui(message, stats)
 
-def update_ui(message, stats):
-    if stats.get('stop_event', False): 
-        return
-    
-    try:
-        markup = types.InlineKeyboardMarkup(row_width=2)
-        markup.add(
-            types.InlineKeyboardButton(f"✅ CHARGED: {stats['ch']}", callback_data='n'),
-            types.InlineKeyboardButton(f"💳 CCN: {stats['ccn']}", callback_data='n'),
-            types.InlineKeyboardButton(f"💎 CVV: {stats['cvv']}", callback_data='n'),
-            types.InlineKeyboardButton(f"💰 LOW: {stats['low']}", callback_data='n'),
-            types.InlineKeyboardButton(f"❌ DECLINED: {stats['dd']}", callback_data='n'),
-            types.InlineKeyboardButton(f"📊 PROGRESS: {stats['checked']}/{stats['total']}", callback_data='n'),
-            types.InlineKeyboardButton(f"🛑 STOP", callback_data='stop')
-        )
-        
-        last_cc = stats.get('last_cc', 'N/A')
-        last_gate = stats.get('last_gate', 'N/A')
-        last_resp = stats.get('last_resp', 'Waiting...')
-        last_proxy = stats.get('last_proxy', 'N/A')
-        
-        text = f"""
-{get_emj('🔄')} <b>FAST CHECKING IN PROGRESS...</b>
-<b>━━━━━━━━━━━━━━</b>
-{get_emj('💳')} <b>LAST CC:</b> <code>{last_cc}</code>
-{get_emj('🎯')} <b>GATE:</b> <code>{last_gate}</code>
-{get_emj('📝')} <b>RESP:</b> <code>{last_resp}</code>
-{get_emj('🌐')} <b>PROXY:</b> <code>{last_proxy}</code>
-<b>━━━━━━━━━━━━━━</b>
-<b>BY: @cyber_404io</b>
-"""
-        bot.edit_message_text(chat_id=message.chat.id, message_id=stats['msg_id'], text=text, reply_markup=markup)
-    except Exception as e:
-        logger.error(f"UI update error: {e}")
-
 def process_card_file(message, cards):
     user_id = message.chat.id
     
-    # Load user's proxy from database if not loaded
     if user_id not in proxy_manager.user_proxies:
         proxy_manager.load_user_proxy(user_id)
     
-    # Check rate limit
     allowed, msg = rate_limiter.check_limit(user_id)
     if not allowed:
         bot.reply_to(message, f"⚠️ {msg}")
         return
     
-    # Cancel any existing tasks for this user
     thread_pool.cancel_user_tasks(user_id)
     
     ko = bot.reply_to(message, f"{get_emj('⏳')} <b>STARTING FAST CHECKER...</b>").message_id
@@ -828,16 +795,14 @@ def process_card_file(message, cards):
     active_checks[user_id] = stats
     update_ui(message, stats)
     
-    # Process cards with global thread pool
     futures = []
     for cc in cards:
         if stats['stop_event']: 
             break
         future = thread_pool.submit(user_id, process_cc, cc, message, stats)
         futures.append(future)
-        time.sleep(0.05)  # Small delay to prevent overload
+        time.sleep(0.05)
     
-    # Wait for all tasks to complete
     for future in futures:
         try:
             future.result(timeout=30)
@@ -873,7 +838,6 @@ def start(message):
         message.from_user.last_name
     )
     
-    # Load user's proxy if exists
     proxy_manager.load_user_proxy(user_id)
     
     is_admin = str(user_id) == str(ADMIN_ID)
@@ -882,7 +846,6 @@ def start(message):
     user = get_user_data(user_id)
     expiry = "LIFETIME" if is_admin else (user['vip_expiry'] if user else 'N/A')
     
-    # Get user stats
     with db_pool.get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -1102,7 +1065,7 @@ def broadcast(message):
         try:
             bot.send_message(user_id, f"{get_emj('📢')} <b>ADMIN BROADCAST:</b>\n\n{msg_text}")
             success += 1
-            time.sleep(0.05)  # Prevent rate limiting
+            time.sleep(0.05)
         except: 
             fail += 1
     
@@ -1127,7 +1090,6 @@ def set_proxy_command(message):
     
     proxy_url = args[1]
     
-    # Validate proxy format
     if '://' not in proxy_url:
         proxy_url = f'http://{proxy_url}'
     
@@ -1190,7 +1152,6 @@ def handle_docs(message):
         bot.reply_to(message, f"{get_emj('❌')} Empty file!")
         return
     
-    # Check if it's a proxy file
     is_proxy_file = False
     for line in lines[:5]:
         if '://' in line or (':' in line and '.' in line and len(line.split(':')) >= 2):
@@ -1202,7 +1163,6 @@ def handle_docs(message):
         bot.reply_to(message, f"{get_emj('✅')} <b>{count} PROXIES LOADED!</b>\n\nAuto-rotation enabled.")
         return
     
-    # Card file - check rate limit first
     allowed, msg = rate_limiter.check_limit(message.chat.id)
     if not allowed:
         bot.reply_to(message, f"⚠️ {msg}")
