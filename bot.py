@@ -399,7 +399,7 @@ CHANNEL_ID = '-1003763847738'
 RESULTS_DIR = "results"
 if not os.path.exists(RESULTS_DIR):
     os.makedirs(RESULTS_DIR)
-
+bot = telebot.TeleBot(token, parse_mode="HTML") 
 # Initialize database
 init_database()
 
